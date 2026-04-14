@@ -2,8 +2,7 @@ version: 2
 
 before:
   hooks:
-    - cmd: go mod tidy
-      dir: cmd/gjlues
+    - go mod tidy -C cmd/gjlues
 
 builds:
   - dir: cmd/gjlues
