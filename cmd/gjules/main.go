@@ -23,7 +23,7 @@ var (
 
 const (
 	baseURL    = "https://jules.googleapis.com/v1alpha"
-	configFile = ".gjlues_config"
+	configFile = ".gjules_config"
 )
 
 // --- Config ---
@@ -70,12 +70,12 @@ func saveConfig(c *Config) {
 }
 
 func readKey() string {
-	if k := os.Getenv("GJLUES_API_KEY"); k != "" {
+	if k := os.Getenv("GJULES_API_KEY"); k != "" {
 		return k
 	}
 	c := loadConfig()
 	if c.CurrentUser == "" {
-		fmt.Fprintln(os.Stderr, "No current user. Run 'gjlues user add <name> <key>' first.")
+		fmt.Fprintln(os.Stderr, "No current user. Run 'gjules user add <name> <key>' first.")
 		os.Exit(1)
 	}
 	key, ok := c.Users[c.CurrentUser]
@@ -459,7 +459,7 @@ func csvEscape(s string) string {
 func msgList(args []string) {
 	fields, remaining := parseFields(args)
 	if len(remaining) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjlues msg list <sessionAlias> [--fields=id,originator,description,created]")
+		fmt.Fprintln(os.Stderr, "Usage: gjules msg list <sessionAlias> [--fields=id,originator,description,created]")
 		os.Exit(1)
 	}
 	sessionAlias := remaining[0]
@@ -596,11 +596,11 @@ func die(err error) {
 }
 
 func version() {
-	fmt.Printf("gjlues %s (commit: %s, tag: %s)\n", Version, GitCommit, GitTag)
+	fmt.Printf("gjules %s (commit: %s, tag: %s)\n", Version, GitCommit, GitTag)
 }
 
 func selfUpdate() {
-	repo := "forechoandlook/gjlues"
+	repo := "forechoandlook/gjules"
 	fmt.Println("Checking for updates...")
 
 	// Fetch latest release
@@ -650,15 +650,15 @@ func selfUpdate() {
 	fmt.Printf("Downloading %s...\n", rel.TagName)
 
 	// Download to temp dir
-	tmpDir, err := os.MkdirTemp("", "gjlues-update")
+	tmpDir, err := os.MkdirTemp("", "gjules-update")
 	if err != nil {
 		die(err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	tmpFile := tmpDir + "/gjlues.tar.gz"
+	tmpFile := tmpDir + "/gjules.tar.gz"
 	if runtime.GOOS == "windows" {
-		tmpFile = tmpDir + "/gjlues.zip"
+		tmpFile = tmpDir + "/gjules.zip"
 	}
 
 	out, err := os.Create(tmpFile)
@@ -676,9 +676,9 @@ func selfUpdate() {
 	dlResp.Body.Close()
 
 	// Extract
-	exePath := tmpDir + "/gjlues"
+	exePath := tmpDir + "/gjules"
 	if runtime.GOOS == "windows" {
-		exePath = tmpDir + "/gjlues.exe"
+		exePath = tmpDir + "/gjules.exe"
 	}
 	cmd := exec.Command("tar", "-xzf", tmpFile, "-C", tmpDir)
 	if runtime.GOOS == "windows" {
@@ -706,7 +706,7 @@ func selfUpdate() {
 }
 
 func handleFeedback(args []string) {
-	repo := "forechoandlook/gjlues"
+	repo := "forechoandlook/gjules"
 	issuesURL := fmt.Sprintf("https://github.com/%s/issues/new", repo)
 
 	// Parse flags
@@ -731,7 +731,7 @@ func handleFeedback(args []string) {
 
 	// Require description and type in non-interactive mode
 	if len(description) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: gjlues feedback [--open] --type=bug|docs|feature|other \"description\"")
+		fmt.Fprintln(os.Stderr, "Usage: gjules feedback [--open] --type=bug|docs|feature|other \"description\"")
 		os.Exit(1)
 	}
 	if category == "" {
@@ -784,7 +784,7 @@ func handleFeedback(args []string) {
 	} else {
 		// Append to local JSONL file
 		home, _ := os.UserHomeDir()
-		feedbackDir := filepath.Join(home, ".gjlues")
+		feedbackDir := filepath.Join(home, ".gjules")
 		os.MkdirAll(feedbackDir, 0755)
 		fname := filepath.Join(feedbackDir, "feedback.jsonl")
 		f, err := os.OpenFile(fname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -794,41 +794,41 @@ func handleFeedback(args []string) {
 		f.WriteString(string(recordJSON) + "\n")
 		f.Close()
 		fmt.Printf("Feedback appended to %s\n", fname)
-		fmt.Printf("To submit, run: gjlues feedback --open --type=%s \"%s\"\n", category, desc)
+		fmt.Printf("To submit, run: gjules feedback --open --type=%s \"%s\"\n", category, desc)
 	}
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `gjlues - Jules CLI
+	fmt.Fprintf(os.Stderr, `gjules - Jules CLI
 
 Usage:
-  gjlues user add <name> <key>       Add user with API key
-  gjlues user use <name>             Switch to user
-  gjlues user list                   List all users
-  gjlues user rm <name>              Remove user
-  gjlues user current                Show current user
+  gjules user add <name> <key>       Add user with API key
+  gjules user use <name>             Switch to user
+  gjules user list                   List all users
+  gjules user rm <name>              Remove user
+  gjules user current                Show current user
 
-  gjlues sources [--fields=...]      List all sources (repos)
-  gjlues repo add <alias> <source>   Add repo alias
-  gjlues repo list                   List repo aliases
-  gjlues repo rm <alias>             Remove repo alias
-  gjlues repo use <alias>            Set default repo
+  gjules sources [--fields=...]      List all sources (repos)
+  gjules repo add <alias> <source>   Add repo alias
+  gjules repo list                   List repo aliases
+  gjules repo rm <alias>             Remove repo alias
+  gjules repo use <alias>            Set default repo
 
-  gjlues sessions [--fields=...]     List all sessions
-  gjlues alias add <name> <id>       Add session alias
-  gjlues alias list                  List session aliases
-  gjlues alias rm <name>             Remove session alias
-  gjlues new "prompt" [--repo=...]   Create session
-  gjlues new "prompt" --repo=<alias> Create session with specific repo
+  gjules sessions [--fields=...]     List all sessions
+  gjules alias add <name> <id>       Add session alias
+  gjules alias list                  List session aliases
+  gjules alias rm <name>             Remove session alias
+  gjules new "prompt" [--repo=...]   Create session
+  gjules new "prompt" --repo=<alias> Create session with specific repo
 
-  gjlues msg list <alias> [--fields=...]  List activities
-  gjlues msg send <alias> "text"     Send message
-  gjlues msg approve <alias>         Approve plan
+  gjules msg list <alias> [--fields=...]  List activities
+  gjules msg send <alias> "text"     Send message
+  gjules msg approve <alias>         Approve plan
 
-  gjlues version                     Show version
-  gjlues update                      Self-update to latest release
-  gjlues feedback --type=bug "msg"   Append to local JSONL (~/.gjlues/feedback.jsonl)
-  gjlues feedback --open --type=bug  Open GitHub issue with pre-filled content
+  gjules version                     Show version
+  gjules update                      Self-update to latest release
+  gjules feedback --type=bug "msg"   Append to local JSONL (~/.gjules/feedback.jsonl)
+  gjules feedback --open --type=bug  Open GitHub issue with pre-filled content
 
 Fields:
   sessions: alias,id,state,title,created,name
@@ -836,10 +836,10 @@ Fields:
   msg list: id,originator,description,created,name
 
 Environment:
-  GJLUES_API_KEY                     API key (overrides config)
+  GJULES_API_KEY                     API key (overrides config)
 
 Config:
-  ~/.gjlues_config                   Multi-user config with aliases
+  ~/.gjules_config                   Multi-user config with aliases
 `)
 }
 
@@ -881,19 +881,19 @@ func main() {
 
 func handleUser(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjlues user <add|use|list|rm|current>")
+		fmt.Fprintln(os.Stderr, "Usage: gjules user <add|use|list|rm|current>")
 		os.Exit(1)
 	}
 	switch args[0] {
 	case "add":
 		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: gjlues user add <name> <key>")
+			fmt.Fprintln(os.Stderr, "Usage: gjules user add <name> <key>")
 			os.Exit(1)
 		}
 		userAdd(args[1], args[2])
 	case "use":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: gjlues user use <name>")
+			fmt.Fprintln(os.Stderr, "Usage: gjules user use <name>")
 			os.Exit(1)
 		}
 		userUse(args[1])
@@ -901,14 +901,14 @@ func handleUser(args []string) {
 		userList()
 	case "rm":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: gjlues user rm <name>")
+			fmt.Fprintln(os.Stderr, "Usage: gjules user rm <name>")
 			os.Exit(1)
 		}
 		userRm(args[1])
 	case "current":
 		c := loadConfig()
-		if k := os.Getenv("GJLUES_API_KEY"); k != "" {
-			fmt.Println("Current user: (env:GJLUES_API_KEY)")
+		if k := os.Getenv("GJULES_API_KEY"); k != "" {
+			fmt.Println("Current user: (env:GJULES_API_KEY)")
 			return
 		}
 		if c.CurrentUser == "" {
@@ -924,13 +924,13 @@ func handleUser(args []string) {
 
 func handleRepo(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjlues repo <add|list|rm|use>")
+		fmt.Fprintln(os.Stderr, "Usage: gjules repo <add|list|rm|use>")
 		os.Exit(1)
 	}
 	switch args[0] {
 	case "add":
 		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: gjlues repo add <alias> <source>")
+			fmt.Fprintln(os.Stderr, "Usage: gjules repo add <alias> <source>")
 			os.Exit(1)
 		}
 		sourceAliasAdd(args[1], args[2])
@@ -938,13 +938,13 @@ func handleRepo(args []string) {
 		sourceAliasList()
 	case "rm":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: gjlues repo rm <alias>")
+			fmt.Fprintln(os.Stderr, "Usage: gjules repo rm <alias>")
 			os.Exit(1)
 		}
 		sourceAliasRm(args[1])
 	case "use":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: gjlues repo use <alias>")
+			fmt.Fprintln(os.Stderr, "Usage: gjules repo use <alias>")
 			os.Exit(1)
 		}
 		sourceUse(args[1])
@@ -956,13 +956,13 @@ func handleRepo(args []string) {
 
 func handleAlias(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjlues alias <add|list|rm>")
+		fmt.Fprintln(os.Stderr, "Usage: gjules alias <add|list|rm>")
 		os.Exit(1)
 	}
 	switch args[0] {
 	case "add":
 		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: gjlues alias add <name> <sessionID>")
+			fmt.Fprintln(os.Stderr, "Usage: gjules alias add <name> <sessionID>")
 			os.Exit(1)
 		}
 		sessionAliasAdd(args[1], args[2])
@@ -970,7 +970,7 @@ func handleAlias(args []string) {
 		sessionAliasList()
 	case "rm":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: gjlues alias rm <name>")
+			fmt.Fprintln(os.Stderr, "Usage: gjules alias rm <name>")
 			os.Exit(1)
 		}
 		sessionAliasRm(args[1])
@@ -982,8 +982,8 @@ func handleAlias(args []string) {
 
 func handleNew(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: gjlues new \"prompt\"")
-		fmt.Fprintln(os.Stderr, "       gjlues new \"prompt\" --repo=<alias>")
+		fmt.Fprintln(os.Stderr, "Usage: gjules new \"prompt\"")
+		fmt.Fprintln(os.Stderr, "       gjules new \"prompt\" --repo=<alias>")
 		os.Exit(1)
 	}
 	
@@ -999,7 +999,7 @@ func handleNew(args []string) {
 	}
 	
 	if len(promptParts) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: gjlues new \"prompt\"")
+		fmt.Fprintln(os.Stderr, "Usage: gjules new \"prompt\"")
 		os.Exit(1)
 	}
 	
@@ -1008,7 +1008,7 @@ func handleNew(args []string) {
 
 func handleMsg(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjlues msg <list|send|approve>")
+		fmt.Fprintln(os.Stderr, "Usage: gjules msg <list|send|approve>")
 		os.Exit(1)
 	}
 	switch args[0] {
@@ -1016,13 +1016,13 @@ func handleMsg(args []string) {
 		msgList(args[1:])
 	case "send":
 		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: gjlues msg send <sessionAlias> \"text\"")
+			fmt.Fprintln(os.Stderr, "Usage: gjules msg send <sessionAlias> \"text\"")
 			os.Exit(1)
 		}
 		msgSend(args[1], strings.Join(args[2:], " "))
 	case "approve":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: gjlues msg approve <sessionAlias>")
+			fmt.Fprintln(os.Stderr, "Usage: gjules msg approve <sessionAlias>")
 			os.Exit(1)
 		}
 		msgApprove(args[1])

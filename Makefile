@@ -7,10 +7,10 @@ LDFLAGS := -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X m
 .PHONY: build clean
 
 build:
-	cd cmd/gjlues && go build -ldflags "$(LDFLAGS)" -o ../../gjlues .
+	cd cmd/gjules && go build -ldflags "$(LDFLAGS)" -o ../../gjules .
 
 test: build
-	./gjlues version
+	./gjules version
 
 clean:
-	rm -f gjlues cmd/gjlues/gjlues
+	rm -f gjules cmd/gjules/gjules

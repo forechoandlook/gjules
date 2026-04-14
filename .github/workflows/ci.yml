@@ -26,4 +26,4 @@ jobs:
         run: make build VERSION=ci-test
 
       - name: Test version
-        run: ./gjlues version
+        run: ./gjules version

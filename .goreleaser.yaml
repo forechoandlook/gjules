@@ -2,11 +2,11 @@ version: 2
 
 before:
   hooks:
-    - go mod tidy -C cmd/gjlues
+    - go mod tidy -C cmd/gjules
 
 builds:
-  - dir: cmd/gjlues
-    binary: gjlues
+  - dir: cmd/gjules
+    binary: gjules
     ldflags:
       - -s -w
       - -X main.Version={{.Version}}

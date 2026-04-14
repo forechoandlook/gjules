@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="forechoandlook/gjlues"
+REPO="forechoandlook/gjules"
 INSTALL_DIR="$HOME/.local/bin"
 
 # Detect OS and arch
@@ -33,11 +33,11 @@ fi
 
 # Build download URL and binary name
 if [ "$OS" = "windows" ]; then
-  ASSET="gjlues_${LATEST}_windows_${ARCH}.zip"
-  BINARY="gjlues.exe"
+  ASSET="gjules_${LATEST}_windows_${ARCH}.zip"
+  BINARY="gjules.exe"
 else
-  ASSET="gjlues_${LATEST}_${OS}_${ARCH}.tar.gz"
-  BINARY="gjlues"
+  ASSET="gjules_${LATEST}_${OS}_${ARCH}.tar.gz"
+  BINARY="gjules"
 fi
 BIN_PATH="$INSTALL_DIR/$BINARY"
 URL="https://github.com/${REPO}/releases/download/v${LATEST}/${ASSET}"
@@ -46,12 +46,12 @@ URL="https://github.com/${REPO}/releases/download/v${LATEST}/${ASSET}"
 if [ -f "$BIN_PATH" ]; then
   CURRENT=$("$BIN_PATH" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
   if [ "$CURRENT" = "$LATEST" ]; then
-    echo "gjlues v${LATEST} is already installed. Nothing to do."
+    echo "gjules v${LATEST} is already installed. Nothing to do."
     exit 0
   fi
   echo "Updating from v${CURRENT:-unknown} to v${LATEST}..."
 else
-  echo "Installing gjlues v${LATEST} for ${OS}/${ARCH}..."
+  echo "Installing gjules v${LATEST} for ${OS}/${ARCH}..."
 fi
 
 # Create temp dir
@@ -83,4 +83,4 @@ if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
   echo "  export PATH=\"\$PATH:$INSTALL_DIR\""
 fi
 
-echo "Run 'gjlues version' to verify"
+echo "Run 'gjules version' to verify"

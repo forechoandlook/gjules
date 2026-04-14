@@ -1,4 +1,4 @@
-module gjlues
+module gjules
 
 go 1.25.7
 

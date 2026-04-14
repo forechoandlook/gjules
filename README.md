@@ -1,62 +1,62 @@
-# gjlues
+# gjules
 
 A lightweight CLI for [Jules](https://jules.google) — Google's AI coding agent.
 
 ## Install
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/forechoandlook/gjlues/main/install.sh | bash
+curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/install.sh | bash
 ```
 
 ## Uninstall
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/forechoandlook/gjlues/main/uninstall.sh | bash
+curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/uninstall.sh | bash
 ```
 
 ## Quick Start
 
 ```bash
 # Add your API key
-gjlues user add main "your-api-key-here"
+gjules user add main "your-api-key-here"
 
 # Set default repo
-gjlues sources                              # list available repos
-gjlues repo add myrepo sources/github-...   # create alias
-gjlues repo use myrepo                      # set default
+gjules sources                              # list available repos
+gjules repo add myrepo sources/github-...   # create alias
+gjules repo use myrepo                      # set default
 
 # Create a session
-gjlues new "Add unit tests for the auth module"
+gjules new "Add unit tests for the auth module"
 
 # Monitor progress
-gjlues sessions                             # list sessions
-gjlues msg list <alias>                     # view activities
-gjlues msg send <alias> "Also add integration tests"
-gjlues msg approve <alias>                  # approve plan
+gjules sessions                             # list sessions
+gjules msg list <alias>                     # view activities
+gjules msg send <alias> "Also add integration tests"
+gjules msg approve <alias>                  # approve plan
 ```
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `gjlues user add <name> <key>` | Add user with API key |
-| `gjlues user use <name>` | Switch user |
-| `gjlues user list` | List users |
-| `gjlues user current` | Show current user |
-| `gjlues sources [--fields=...]` | List connected repos |
-| `gjlues repo add/list/rm/use` | Manage repo aliases |
-| `gjlues sessions [--fields=...]` | List sessions |
-| `gjlues alias add/list/rm` | Manage session aliases |
-| `gjlues new "prompt" [--repo=...]` | Create session |
-| `gjlues msg list <alias> [--fields=...]` | List activities |
-| `gjlues msg send <alias> "text"` | Send message |
-| `gjlues msg approve <alias>` | Approve plan |
-| `gjlues version` | Show version |
+| `gjules user add <name> <key>` | Add user with API key |
+| `gjules user use <name>` | Switch user |
+| `gjules user list` | List users |
+| `gjules user current` | Show current user |
+| `gjules sources [--fields=...]` | List connected repos |
+| `gjules repo add/list/rm/use` | Manage repo aliases |
+| `gjules sessions [--fields=...]` | List sessions |
+| `gjules alias add/list/rm` | Manage session aliases |
+| `gjules new "prompt" [--repo=...]` | Create session |
+| `gjules msg list <alias> [--fields=...]` | List activities |
+| `gjules msg send <alias> "text"` | Send message |
+| `gjules msg approve <alias>` | Approve plan |
+| `gjules version` | Show version |
 
 ## Configuration
 
-- **Env var**: `GJLUES_API_KEY` takes priority over config file
-- **Config**: `~/.gjlues_config` — multi-user setup with aliases
+- **Env var**: `GJULES_API_KEY` takes priority over config file
+- **Config**: `~/.gjules_config` — multi-user setup with aliases
 
 ```json
 {
@@ -71,8 +71,8 @@ gjlues msg approve <alias>                  # approve plan
 ## Build from source
 
 ```bash
-git clone https://github.com/forechoandlook/gjlues.git
-cd gjlues
+git clone https://github.com/forechoandlook/gjules.git
+cd gjules
 make build
 ```
 
