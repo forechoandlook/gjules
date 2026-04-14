@@ -2,6 +2,10 @@
 
 A lightweight CLI for [Jules](https://jules.google) — Google's AI coding agent.
 
+## 安装 skills 
+
+`npx skills add forechoandlook/gjules --skills gjules`
+
 ## Install
 
 ```bash
