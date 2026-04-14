@@ -2,13 +2,26 @@
 set -euo pipefail
 
 BINARY="gjlues"
-INSTALL_DIR="/usr/local/bin"
+# Detect OS to handle .exe extension
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+case "$OS" in
+  mingw*|msys*|cygwin*) BINARY="gjlues.exe" ;;
+esac
+
+INSTALL_DIR="$HOME/.local/bin"
 BIN_PATH="$INSTALL_DIR/$BINARY"
 
 if [ ! -f "$BIN_PATH" ]; then
-  echo "$BINARY not found at $BIN_PATH"
-  exit 1
+  # Fallback: check without .exe if not found, or vice versa
+  if [ "$BINARY" = "gjlues" ] && [ -f "$INSTALL_DIR/gjlues.exe" ]; then
+    BIN_PATH="$INSTALL_DIR/gjlues.exe"
+  elif [ "$BINARY" = "gjlues.exe" ] && [ -f "$INSTALL_DIR/gjlues" ]; then
+    BIN_PATH="$INSTALL_DIR/gjlues"
+  else
+    echo "gjlues not found at $INSTALL_DIR"
+    exit 0
+  fi
 fi
 
-sudo rm -f "$BIN_PATH"
-echo "Uninstalled $BINARY from $BIN_PATH"
+rm -f "$BIN_PATH"
+echo "Uninstalled gjlues from $BIN_PATH"

@@ -2,9 +2,7 @@
 set -euo pipefail
 
 REPO="forechoandlook/gjlues"
-BINARY="gjlues"
-INSTALL_DIR="/usr/local/bin"
-BIN_PATH="$INSTALL_DIR/$BINARY"
+INSTALL_DIR="$HOME/.local/bin"
 
 # Detect OS and arch
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -19,6 +17,7 @@ esac
 case "$OS" in
   darwin) OS="darwin" ;;
   linux)  OS="linux" ;;
+  mingw*|msys*|cygwin*) OS="windows" ;;
   *)
     echo "Unsupported OS: $OS"
     exit 1
@@ -32,6 +31,17 @@ if [ -z "$LATEST" ]; then
   exit 1
 fi
 
+# Build download URL and binary name
+if [ "$OS" = "windows" ]; then
+  ASSET="gjlues_${LATEST}_windows_${ARCH}.zip"
+  BINARY="gjlues.exe"
+else
+  ASSET="gjlues_${LATEST}_${OS}_${ARCH}.tar.gz"
+  BINARY="gjlues"
+fi
+BIN_PATH="$INSTALL_DIR/$BINARY"
+URL="https://github.com/${REPO}/releases/download/v${LATEST}/${ASSET}"
+
 # Check if already installed
 if [ -f "$BIN_PATH" ]; then
   CURRENT=$("$BIN_PATH" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
@@ -44,21 +54,33 @@ else
   echo "Installing gjlues v${LATEST} for ${OS}/${ARCH}..."
 fi
 
-# Build download URL
-ASSET="gjlues_${LATEST}_${OS}_${ARCH}.tar.gz"
-URL="https://github.com/${REPO}/releases/download/v${LATEST}/${ASSET}"
-
 # Create temp dir
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Download and extract
+echo "Downloading $URL..."
 curl -sL "$URL" -o "${TMPDIR}/${ASSET}"
-tar -xzf "${TMPDIR}/${ASSET}" -C "$TMPDIR"
+if [ "$OS" = "windows" ]; then
+  unzip -q "${TMPDIR}/${ASSET}" -d "$TMPDIR"
+else
+  tar -xzf "${TMPDIR}/${ASSET}" -C "$TMPDIR"
+fi
+
+# Create install dir if it doesn't exist
+mkdir -p "$INSTALL_DIR"
 
 # Install
 chmod +x "$TMPDIR/$BINARY"
-sudo mv "$TMPDIR/$BINARY" "$BIN_PATH"
+mv "$TMPDIR/$BINARY" "$BIN_PATH"
 
 echo "Installed v${LATEST} to $BIN_PATH"
+
+# Check if INSTALL_DIR is in PATH
+if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+  echo "Warning: $INSTALL_DIR is not in your PATH."
+  echo "You may need to add it to your shell profile (e.g., ~/.bashrc or ~/.zshrc):"
+  echo "  export PATH=\"\$PATH:$INSTALL_DIR\""
+fi
+
 echo "Run 'gjlues version' to verify"
