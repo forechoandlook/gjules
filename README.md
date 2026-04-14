@@ -33,6 +33,10 @@ gjules sessions                             # list sessions
 gjules msg list <alias>                     # view activities
 gjules msg send <alias> "Also add integration tests"
 gjules msg approve <alias>                  # approve plan
+
+# Feedback
+gjules feedback --type=bug "msg"            # Append to local JSONL (~/.gjules/feedback.jsonl)
+gjules feedback --open --type=bug           # Open GitHub issue with pre-filled content
 ```
 
 ## Commands
@@ -43,15 +47,20 @@ gjules msg approve <alias>                  # approve plan
 | `gjules user use <name>` | Switch user |
 | `gjules user list` | List users |
 | `gjules user current` | Show current user |
+| `gjules user rm <name>` | Remove user |
 | `gjules sources [--fields=...]` | List connected repos |
-| `gjules repo add/list/rm/use` | Manage repo aliases |
+| `gjules repo add <alias> <src>` | Manage repo aliases |
+| `gjules repo list/rm/use` | Manage repo aliases |
 | `gjules sessions [--fields=...]` | List sessions |
-| `gjules alias add/list/rm` | Manage session aliases |
+| `gjules alias add <name> <id>` | Manage session aliases |
+| `gjules alias list/rm` | Manage session aliases |
 | `gjules new "prompt" [--repo=...]` | Create session |
 | `gjules msg list <alias> [--fields=...]` | List activities |
 | `gjules msg send <alias> "text"` | Send message |
 | `gjules msg approve <alias>` | Approve plan |
 | `gjules version` | Show version |
+| `gjules update` | Self-update to latest release |
+| `gjules feedback` | Submit feedback |
 
 ## Configuration
 
