@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -596,6 +598,112 @@ func version() {
 	fmt.Printf("gjlues %s (commit: %s, tag: %s)\n", Version, GitCommit, GitTag)
 }
 
+func selfUpdate() {
+	repo := "forechoandlook/gjlues"
+	fmt.Println("Checking for updates...")
+
+	// Fetch latest release
+	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo))
+	if err != nil {
+		die(err)
+	}
+	defer resp.Body.Close()
+
+	var rel struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name   string `json:"name"`
+			URL    string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	json.NewDecoder(resp.Body).Decode(&rel)
+
+	latestVersion := strings.TrimPrefix(rel.TagName, "v")
+	if latestVersion == Version {
+		fmt.Printf("Already on the latest version: %s\n", Version)
+		return
+	}
+	fmt.Printf("New version available: %s (current: %s)\n", latestVersion, Version)
+
+	// Detect OS and arch
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+	if goarch == "x86_64" {
+		goarch = "amd64"
+	}
+
+	// Find the matching asset
+	var assetURL string
+	for _, a := range rel.Assets {
+		if strings.Contains(a.Name, goos) && strings.Contains(a.Name, goarch) {
+			assetURL = a.URL
+			break
+		}
+	}
+	if assetURL == "" {
+		fmt.Fprintf(os.Stderr, "No binary found for %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		fmt.Fprintf(os.Stderr, "Download manually: https://github.com/%s/releases/latest\n", repo)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Downloading %s...\n", rel.TagName)
+
+	// Download to temp dir
+	tmpDir, err := os.MkdirTemp("", "gjlues-update")
+	if err != nil {
+		die(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	tmpFile := tmpDir + "/gjlues.tar.gz"
+	if runtime.GOOS == "windows" {
+		tmpFile = tmpDir + "/gjlues.zip"
+	}
+
+	out, err := os.Create(tmpFile)
+	if err != nil {
+		die(err)
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	dlResp, err := client.Get(assetURL)
+	if err != nil {
+		die(err)
+	}
+	io.Copy(out, dlResp.Body)
+	out.Close()
+	dlResp.Body.Close()
+
+	// Extract
+	exePath := tmpDir + "/gjlues"
+	if runtime.GOOS == "windows" {
+		exePath = tmpDir + "/gjlues.exe"
+	}
+	cmd := exec.Command("tar", "-xzf", tmpFile, "-C", tmpDir)
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("powershell", "-Command", "Expand-Archive", "-Path", tmpFile, "-DestinationPath", tmpDir)
+	}
+	if err := cmd.Run(); err != nil {
+		die(fmt.Errorf("failed to extract: %w", err))
+	}
+
+	// Replace current binary
+	exe, err := os.Executable()
+	if err != nil {
+		die(err)
+	}
+	if err := os.Rename(exePath, exe); err != nil {
+		// Fallback: copy
+		src, _ := os.Open(exePath)
+		defer src.Close()
+		dst, _ := os.OpenFile(exe, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+		defer dst.Close()
+		io.Copy(dst, src)
+	}
+
+	fmt.Printf("Updated to %s!\n", latestVersion)
+}
+
 func usage() {
 	fmt.Fprintf(os.Stderr, `gjlues - Jules CLI
 
@@ -624,6 +732,7 @@ Usage:
   gjlues msg approve <alias>         Approve plan
 
   gjlues version                     Show version
+  gjlues update                      Self-update to latest release
 
 Fields:
   sessions: alias,id,state,title,created,name
@@ -661,6 +770,8 @@ func main() {
 		handleMsg(os.Args[2:])
 	case "version", "--version", "-v":
 		version()
+	case "update":
+		selfUpdate()
 	case "-h", "--help", "help":
 		usage()
 	default:
