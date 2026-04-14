@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -726,53 +725,44 @@ func handleFeedback(args []string) {
 	}
 
 	// Valid categories
-	validCategories := map[string]string{
-		"bug":     "bug",
-		"docs":    "documentation",
-		"feature": "feature",
-		"other":   "other",
-	}
-	if category != "" {
-		if _, ok := validCategories[category]; !ok {
-			fmt.Fprintf(os.Stderr, "Invalid type: %s. Valid types: bug, docs, feature, other\n", category)
-			os.Exit(1)
-		}
+	validCategories := map[string]bool{
+		"bug": true, "docs": true, "feature": true, "other": true,
 	}
 
-	// Interactive mode if no description
+	// Require description and type in non-interactive mode
 	if len(description) == 0 {
-		fmt.Println("Available categories:")
-		fmt.Println("  bug      - Report a bug")
-		fmt.Println("  docs     - Documentation issue")
-		fmt.Println("  feature  - Feature request")
-		fmt.Println("  other    - Other feedback")
-		fmt.Print("Category (bug/docs/feature/other): ")
-		fmt.Scanln(&category)
-		if _, ok := validCategories[category]; !ok {
-			fmt.Fprintln(os.Stderr, "Invalid category, defaulting to 'other'")
-			category = "other"
-		}
-		fmt.Print("Description: ")
-		reader := bufio.NewReader(os.Stdin)
-		desc, _ := reader.ReadString('\n')
-		description = []string{strings.TrimSpace(desc)}
+		fmt.Fprintln(os.Stderr, "Usage: gjlues feedback [--open] --type=bug|docs|feature|other \"description\"")
+		os.Exit(1)
 	}
-
-	if len(description) == 0 {
-		fmt.Fprintln(os.Stderr, "Description is required")
+	if category == "" {
+		fmt.Fprintln(os.Stderr, "Category is required. Use --type=bug|docs|feature|other")
+		os.Exit(1)
+	}
+	if _, ok := validCategories[category]; !ok {
+		fmt.Fprintf(os.Stderr, "Invalid type: %s. Valid types: bug, docs, feature, other\n", category)
 		os.Exit(1)
 	}
 
 	desc := strings.Join(description, " ")
-	title := fmt.Sprintf("[%s] %s", category, desc)
 
-	// Generate issue body
-	body := fmt.Sprintf(
-		"## Type\n%s\n\n## Description\n%s\n\n## Environment\n- **Version**: %s\n- **OS**: %s/%s\n- **Commit**: %s\n",
-		category, desc, Version, runtime.GOOS, runtime.GOARCH, GitCommit,
-	)
+	// Build feedback record
+	record := map[string]string{
+		"type":        category,
+		"description": desc,
+		"version":     Version,
+		"os":          runtime.GOOS,
+		"arch":        runtime.GOARCH,
+		"commit":      GitCommit,
+		"created_at":  time.Now().UTC().Format(time.RFC3339),
+	}
+	recordJSON, _ := json.Marshal(record)
 
 	if openBrowser {
+		title := fmt.Sprintf("[%s] %s", category, desc)
+		body := fmt.Sprintf(
+			"## Type\n%s\n\n## Description\n%s\n\n## Environment\n- **Version**: %s\n- **OS**: %s/%s\n- **Commit**: %s\n",
+			category, desc, Version, runtime.GOOS, runtime.GOARCH, GitCommit,
+		)
 		url := fmt.Sprintf("%s?title=%s&body=%s",
 			issuesURL,
 			url.QueryEscape(title),
@@ -792,15 +782,18 @@ func handleFeedback(args []string) {
 			fmt.Fprintf(os.Stderr, "Failed to open browser. Please visit:\n%s\n", url)
 		}
 	} else {
-		// Save locally
-		fname := fmt.Sprintf("feedback_%s_%s.md",
-			time.Now().Format("20060102_150405"),
-			category)
-		content := fmt.Sprintf("# %s\n\n%s\n", title, body)
-		if err := os.WriteFile(fname, []byte(content), 0644); err != nil {
+		// Append to local JSONL file
+		home, _ := os.UserHomeDir()
+		feedbackDir := filepath.Join(home, ".gjlues")
+		os.MkdirAll(feedbackDir, 0755)
+		fname := filepath.Join(feedbackDir, "feedback.jsonl")
+		f, err := os.OpenFile(fname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
 			die(err)
 		}
-		fmt.Printf("Feedback saved to %s\n", fname)
+		f.WriteString(string(recordJSON) + "\n")
+		f.Close()
+		fmt.Printf("Feedback appended to %s\n", fname)
 		fmt.Printf("To submit, run: gjlues feedback --open --type=%s \"%s\"\n", category, desc)
 	}
 }
@@ -834,9 +827,8 @@ Usage:
 
   gjlues version                     Show version
   gjlues update                      Self-update to latest release
-  gjlues feedback [desc]             Local feedback (saves to file)
-  gjlues feedback --open [desc]      Open GitHub issue
-  gjlues feedback --type=bug "msg"   Specify category (bug/docs/feature/other)
+  gjlues feedback --type=bug "msg"   Append to local JSONL (~/.gjlues/feedback.jsonl)
+  gjlues feedback --open --type=bug  Open GitHub issue with pre-filled content
 
 Fields:
   sessions: alias,id,state,title,created,name
