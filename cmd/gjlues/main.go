@@ -1,0 +1,824 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// Build-time injected via -ldflags
+var (
+	Version   = "dev"
+	GitCommit = "unknown"
+	GitTag    = "unknown"
+)
+
+const (
+	baseURL    = "https://jules.googleapis.com/v1alpha"
+	configFile = ".gjlues_config"
+)
+
+// --- Config ---
+
+type Config struct {
+	Users         map[string]string `json:"users,omitempty"`
+	CurrentUser   string            `json:"currentUser,omitempty"`
+	SessionAlias  map[string]string `json:"sessionAlias,omitempty"`  // alias -> full ID
+	RepoAlias     map[string]string `json:"repoAlias,omitempty"`     // alias -> source name (e.g. sources/github-org-repo)
+	CurrentRepo   string            `json:"currentRepo,omitempty"`   // default repo alias or full source name
+}
+
+func configPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, configFile)
+}
+
+func loadConfig() *Config {
+	b, err := os.ReadFile(configPath())
+	if err != nil {
+		return &Config{
+			Users:      make(map[string]string),
+			SessionAlias:  make(map[string]string),
+			RepoAlias:     make(map[string]string),
+		}
+	}
+	var c Config
+	json.Unmarshal(b, &c)
+	if c.Users == nil {
+		c.Users = make(map[string]string)
+	}
+	if c.SessionAlias == nil {
+		c.SessionAlias = make(map[string]string)
+	}
+	if c.RepoAlias == nil {
+		c.RepoAlias = make(map[string]string)
+	}
+	return &c
+}
+
+func saveConfig(c *Config) {
+	b, _ := json.MarshalIndent(c, "", "  ")
+	os.WriteFile(configPath(), b, 0600)
+}
+
+func readKey() string {
+	if k := os.Getenv("GJLUES_API_KEY"); k != "" {
+		return k
+	}
+	c := loadConfig()
+	if c.CurrentUser == "" {
+		fmt.Fprintln(os.Stderr, "No current user. Run 'gjlues user add <name> <key>' first.")
+		os.Exit(1)
+	}
+	key, ok := c.Users[c.CurrentUser]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "User %q not found in config.\n", c.CurrentUser)
+		os.Exit(1)
+	}
+	return key
+}
+
+func resolveSessionID(aliasOrID string) string {
+	c := loadConfig()
+	if fullID, ok := c.SessionAlias[aliasOrID]; ok {
+		return fullID
+	}
+	return aliasOrID
+}
+
+func resolveSource(aliasOrSource string) string {
+	c := loadConfig()
+	if source, ok := c.RepoAlias[aliasOrSource]; ok {
+		return source
+	}
+	return aliasOrSource
+}
+
+// --- HTTP ---
+
+func httpClient() *http.Client {
+	return &http.Client{Timeout: 30 * time.Second}
+}
+
+func doJSON(key, method, path string, body map[string]interface{}) (*http.Response, map[string]interface{}, error) {
+	var r io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		r = strings.NewReader(string(b))
+	}
+	req, _ := http.NewRequest(method, baseURL+path, r)
+	req.Header.Set("x-goog-api-key", key)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient().Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return resp, result, nil
+}
+
+func do(key, method, path string, body ...io.Reader) (*http.Response, error) {
+	var r io.Reader
+	if len(body) > 0 {
+		r = body[0]
+	}
+	req, _ := http.NewRequest(method, baseURL+path, r)
+	req.Header.Set("x-goog-api-key", key)
+	req.Header.Set("Content-Type", "application/json")
+	return httpClient().Do(req)
+}
+
+// --- Commands ---
+
+func userAdd(name, key string) {
+	c := loadConfig()
+	c.Users[name] = key
+	c.CurrentUser = name
+	saveConfig(c)
+	fmt.Printf("User %q added and switched.\n", name)
+}
+
+func userUse(name string) {
+	c := loadConfig()
+	if _, ok := c.Users[name]; !ok {
+		fmt.Fprintf(os.Stderr, "User %q not found.\n", name)
+		os.Exit(1)
+	}
+	c.CurrentUser = name
+	saveConfig(c)
+	fmt.Printf("Switched to user %q.\n", name)
+}
+
+func userList() {
+	c := loadConfig()
+	if len(c.Users) == 0 {
+		fmt.Println("No users configured.")
+		return
+	}
+	fmt.Printf("%-15s %s\n", "USER", "KEY")
+	fmt.Println(strings.Repeat("-", 50))
+	for name, key := range c.Users {
+		mark := " "
+		if name == c.CurrentUser {
+			mark = "*"
+		}
+		fmt.Printf("%s %-14s %s...%s\n", mark, name, key[:6], key[len(key)-4:])
+	}
+	if c.CurrentUser != "" {
+		fmt.Printf("\n(current user: %s)\n", c.CurrentUser)
+	}
+}
+
+func userRm(name string) {
+	c := loadConfig()
+	if _, ok := c.Users[name]; !ok {
+		fmt.Fprintf(os.Stderr, "User %q not found.\n", name)
+		os.Exit(1)
+	}
+	delete(c.Users, name)
+	if c.CurrentUser == name {
+		c.CurrentUser = ""
+	}
+	saveConfig(c)
+	fmt.Printf("User %q removed.\n", name)
+}
+
+// --- Sources ---
+
+func sources(args []string) {
+	fields, _ := parseFields(args)
+	
+	key := readKey()
+	resp, err := do(key, "GET", "/sources")
+	if err != nil {
+		die(err)
+	}
+	defer resp.Body.Close()
+
+	var r struct {
+		Sources []struct {
+			Name         string `json:"name"`
+			ID           string `json:"id"`
+			GithubRepo   *struct {
+				Owner string `json:"owner"`
+				Repo  string `json:"repo"`
+				DefaultBranch *struct {
+					DisplayName string `json:"displayName"`
+				} `json:"defaultBranch"`
+			} `json:"githubRepo"`
+		} `json:"sources"`
+	}
+	json.NewDecoder(resp.Body).Decode(&r)
+
+	if len(r.Sources) == 0 {
+		fmt.Println("No sources found.")
+		return
+	}
+
+	c := loadConfig()
+	reverseAlias := make(map[string]string)
+	for alias, src := range c.RepoAlias {
+		reverseAlias[src] = alias
+	}
+
+	// Print header
+	headerFields := fields
+	if len(headerFields) == 0 {
+		headerFields = []string{"name", "id", "owner", "repo", "branch", "alias"}
+	}
+	fmt.Println(strings.Join(headerFields, ","))
+
+	for _, s := range r.Sources {
+		owner := ""
+		repo := ""
+		branch := ""
+		if s.GithubRepo != nil {
+			owner = s.GithubRepo.Owner
+			repo = s.GithubRepo.Repo
+			if s.GithubRepo.DefaultBranch != nil {
+				branch = s.GithubRepo.DefaultBranch.DisplayName
+			}
+		}
+		alias := reverseAlias[s.Name]
+		if alias == "" {
+			alias = "-"
+		}
+		values := map[string]string{
+			"name":    s.Name,
+			"id":      s.ID,
+			"owner":   owner,
+			"repo":    repo,
+			"branch":  branch,
+			"alias":   alias,
+		}
+		fmt.Println(csvFields(fields, values))
+	}
+}
+
+func sourceAliasAdd(alias, source string) {
+	c := loadConfig()
+	// Try to validate by listing sources
+	src := resolveSource(source)
+	if !strings.HasPrefix(src, "sources/") {
+		src = "sources/" + source
+	}
+	c.RepoAlias[alias] = src
+	saveConfig(c)
+	fmt.Printf("Repo alias %q -> %s\n", alias, src)
+}
+
+func sourceAliasList() {
+	c := loadConfig()
+	if len(c.RepoAlias) == 0 {
+		fmt.Println("No repo aliases configured.")
+		return
+	}
+	fmt.Printf("%-15s %s\n", "ALIAS", "SOURCE")
+	fmt.Println(strings.Repeat("-", 50))
+	for alias, src := range c.RepoAlias {
+		fmt.Printf("%-15s %s\n", alias, src)
+	}
+}
+
+func sourceAliasRm(alias string) {
+	c := loadConfig()
+	if _, ok := c.RepoAlias[alias]; !ok {
+		fmt.Fprintf(os.Stderr, "Repo alias %q not found.\n", alias)
+		os.Exit(1)
+	}
+	delete(c.RepoAlias, alias)
+	saveConfig(c)
+	fmt.Printf("Repo alias %q removed.\n", alias)
+}
+
+func sourceUse(alias string) {
+	c := loadConfig()
+	src := resolveSource(alias)
+	if !strings.HasPrefix(src, "sources/") {
+		src = "sources/" + alias
+	}
+	c.CurrentRepo = src
+	saveConfig(c)
+	fmt.Printf("Current repo set to %s\n", src)
+}
+
+// --- Sessions ---
+
+func sessions(args []string) {
+	fields, _ := parseFields(args)
+	
+	key := readKey()
+	resp, err := do(key, "GET", "/sessions")
+	if err != nil {
+		die(err)
+	}
+	defer resp.Body.Close()
+
+	var r struct {
+		Sessions []struct {
+			Name       string `json:"name"`
+			ID         string `json:"id"`
+			Title      string `json:"title"`
+			State      string `json:"state"`
+			CreateTime string `json:"createTime"`
+		} `json:"sessions"`
+		NextPageToken string `json:"nextPageToken"`
+	}
+	json.NewDecoder(resp.Body).Decode(&r)
+
+	if len(r.Sessions) == 0 {
+		fmt.Println("No sessions found.")
+		return
+	}
+
+	c := loadConfig()
+	reverseAlias := make(map[string]string)
+	for alias, id := range c.SessionAlias {
+		reverseAlias[id] = alias
+	}
+
+	// Print header
+	headerFields := fields
+	if len(headerFields) == 0 {
+		headerFields = []string{"alias", "id", "state", "title", "created", "name"}
+	}
+	fmt.Println(strings.Join(headerFields, ","))
+
+	for _, s := range r.Sessions {
+		t, _ := time.Parse(time.RFC3339, s.CreateTime)
+		alias := reverseAlias[s.ID]
+		if alias == "" {
+			alias = "-"
+		}
+		values := map[string]string{
+			"alias":   alias,
+			"id":      s.ID,
+			"state":   s.State,
+			"title":   s.Title,
+			"created": t.Local().Format("2006-01-02 15:04:05"),
+			"name":    s.Name,
+		}
+		fmt.Println(csvFields(fields, values))
+	}
+	if r.NextPageToken != "" {
+		fmt.Fprintf(os.Stderr, "# nextPageToken=%s\n", r.NextPageToken)
+	}
+}
+
+func sessionAliasAdd(alias, sessionID string) {
+	c := loadConfig()
+	c.SessionAlias[alias] = sessionID
+	saveConfig(c)
+	fmt.Printf("Session alias %q -> %s\n", alias, sessionID)
+}
+
+func sessionAliasList() {
+	c := loadConfig()
+	if len(c.SessionAlias) == 0 {
+		fmt.Println("No session aliases configured.")
+		return
+	}
+	fmt.Printf("%-15s %s\n", "ALIAS", "SESSION ID")
+	fmt.Println(strings.Repeat("-", 50))
+	for alias, id := range c.SessionAlias {
+		fmt.Printf("%-15s %s\n", alias, id)
+	}
+}
+
+func sessionAliasRm(alias string) {
+	c := loadConfig()
+	if _, ok := c.SessionAlias[alias]; !ok {
+		fmt.Fprintf(os.Stderr, "Session alias %q not found.\n", alias)
+		os.Exit(1)
+	}
+	delete(c.SessionAlias, alias)
+	saveConfig(c)
+	fmt.Printf("Session alias %q removed.\n", alias)
+}
+
+func newSession(prompt, repoAlias string) {
+	key := readKey()
+	c := loadConfig()
+	
+	body := map[string]interface{}{"prompt": prompt}
+	
+	// Add source context if repo specified
+	repo := repoAlias
+	if repo == "" {
+		repo = c.CurrentRepo
+	}
+	if repo != "" {
+		src := resolveSource(repo)
+		if !strings.HasPrefix(src, "sources/") {
+			src = "sources/" + src
+		}
+		body["sourceContext"] = map[string]interface{}{
+			"source": src,
+		}
+	}
+	
+	_, result, err := doJSON(key, "POST", "/sessions", body)
+	if err != nil {
+		die(err)
+	}
+
+	fmt.Printf("Session created!\n")
+	if name, ok := result["name"].(string); ok {
+		fmt.Printf("  Name:  %s\n", name)
+	}
+	if id, ok := result["id"].(string); ok {
+		fmt.Printf("  ID:    %s\n", id)
+	}
+	if state, ok := result["state"].(string); ok {
+		fmt.Printf("  State: %s\n", state)
+	}
+	if url, ok := result["url"].(string); ok {
+		fmt.Printf("  URL:   %s\n", url)
+	}
+}
+
+// --- Messages ---
+
+func csvEscape(s string) string {
+	if strings.ContainsAny(s, ",\"\n") {
+		s = strings.ReplaceAll(s, "\"", "\"\"")
+		return "\"" + s + "\""
+	}
+	return s
+}
+
+func msgList(args []string) {
+	fields, remaining := parseFields(args)
+	if len(remaining) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: gjlues msg list <sessionAlias> [--fields=id,originator,description,created]")
+		os.Exit(1)
+	}
+	sessionAlias := remaining[0]
+
+	sessionID := resolveSessionID(sessionAlias)
+	key := readKey()
+	resp, err := do(key, "GET", fmt.Sprintf("/sessions/%s/activities", sessionID))
+	if err != nil {
+		die(err)
+	}
+	defer resp.Body.Close()
+
+	var r struct {
+		Activities []struct {
+			Name        string `json:"name"`
+			ID          string `json:"id"`
+			Description string `json:"description"`
+			Originator  string `json:"originator"`
+			CreateTime  string `json:"createTime"`
+		} `json:"activities"`
+		NextPageToken string `json:"nextPageToken"`
+	}
+	json.NewDecoder(resp.Body).Decode(&r)
+
+	if len(r.Activities) == 0 {
+		fmt.Println("No activities found.")
+		return
+	}
+
+	// Print header
+	headerFields := fields
+	if len(headerFields) == 0 {
+		headerFields = []string{"id", "originator", "description", "created"}
+	}
+	fmt.Println(strings.Join(headerFields, ","))
+
+	for _, a := range r.Activities {
+		t, _ := time.Parse(time.RFC3339, a.CreateTime)
+		values := map[string]string{
+			"id":          a.ID,
+			"originator":  a.Originator,
+			"description": a.Description,
+			"created":     t.Local().Format("2006-01-02 15:04:05"),
+			"name":        a.Name,
+		}
+		fmt.Println(csvFields(fields, values))
+	}
+	if r.NextPageToken != "" {
+		fmt.Fprintf(os.Stderr, "# nextPageToken=%s\n", r.NextPageToken)
+	}
+}
+
+func msgSend(sessionAlias, text string) {
+	sessionID := resolveSessionID(sessionAlias)
+	key := readKey()
+	body, _ := json.Marshal(map[string]string{"prompt": text})
+	resp, err := do(key, "POST", fmt.Sprintf("/sessions/%s:sendMessage", sessionID), strings.NewReader(string(body)))
+	if err != nil {
+		die(err)
+	}
+	defer resp.Body.Close()
+	fmt.Println("Message sent.")
+}
+
+func msgApprove(sessionAlias string) {
+	sessionID := resolveSessionID(sessionAlias)
+	key := readKey()
+	resp, err := do(key, "POST", fmt.Sprintf("/sessions/%s:approvePlan", sessionID), strings.NewReader("{}"))
+	if err != nil {
+		die(err)
+	}
+	defer resp.Body.Close()
+	fmt.Println("Plan approved.")
+}
+
+// --- Helpers ---
+
+func parseFields(args []string) (fields []string, remaining []string) {
+	for _, a := range args {
+		if strings.HasPrefix(a, "--fields=") {
+			raw := strings.TrimPrefix(a, "--fields=")
+			fields = strings.Split(raw, ",")
+			for i := range fields {
+				fields[i] = strings.TrimSpace(fields[i])
+			}
+		} else {
+			remaining = append(remaining, a)
+		}
+	}
+	return
+}
+
+func selectFields(allFields []string, values map[string]string) []string {
+	if len(allFields) == 0 {
+		// Return all values in order
+		result := make([]string, 0, len(values))
+		for _, f := range orderedKeys(values) {
+			result = append(result, values[f])
+		}
+		return result
+	}
+	result := make([]string, len(allFields))
+	for i, f := range allFields {
+		result[i] = values[f]
+	}
+	return result
+}
+
+func orderedKeys(m map[string]string) []string {
+	// Predefined order for common fields
+	order := []string{"alias", "id", "state", "title", "created", "name", "originator", "description", "owner", "repo", "branch"}
+	seen := make(map[string]bool)
+	var result []string
+	for _, k := range order {
+		if _, ok := m[k]; ok && !seen[k] {
+			result = append(result, k)
+			seen[k] = true
+		}
+	}
+	return result
+}
+
+func csvFields(fields []string, values map[string]string) string {
+	selected := selectFields(fields, values)
+	for i := range selected {
+		selected[i] = csvEscape(selected[i])
+	}
+	return strings.Join(selected, ",")
+}
+
+func die(err error) {
+	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	os.Exit(1)
+}
+
+func version() {
+	fmt.Printf("gjlues %s (commit: %s, tag: %s)\n", Version, GitCommit, GitTag)
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, `gjlues - Jules CLI
+
+Usage:
+  gjlues user add <name> <key>       Add user with API key
+  gjlues user use <name>             Switch to user
+  gjlues user list                   List all users
+  gjlues user rm <name>              Remove user
+  gjlues user current                Show current user
+
+  gjlues sources [--fields=...]      List all sources (repos)
+  gjlues repo add <alias> <source>   Add repo alias
+  gjlues repo list                   List repo aliases
+  gjlues repo rm <alias>             Remove repo alias
+  gjlues repo use <alias>            Set default repo
+
+  gjlues sessions [--fields=...]     List all sessions
+  gjlues alias add <name> <id>       Add session alias
+  gjlues alias list                  List session aliases
+  gjlues alias rm <name>             Remove session alias
+  gjlues new "prompt" [--repo=...]   Create session
+  gjlues new "prompt" --repo=<alias> Create session with specific repo
+
+  gjlues msg list <alias> [--fields=...]  List activities
+  gjlues msg send <alias> "text"     Send message
+  gjlues msg approve <alias>         Approve plan
+
+  gjlues version                     Show version
+
+Fields:
+  sessions: alias,id,state,title,created,name
+  sources:  name,id,owner,repo,branch,alias
+  msg list: id,originator,description,created,name
+
+Environment:
+  GJLUES_API_KEY                     API key (overrides config)
+
+Config:
+  ~/.gjlues_config                   Multi-user config with aliases
+`)
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(1)
+	}
+
+	switch os.Args[1] {
+	case "user":
+		handleUser(os.Args[2:])
+	case "sources":
+		sources(os.Args[2:])
+	case "repo":
+		handleRepo(os.Args[2:])
+	case "sessions":
+		sessions(os.Args[2:])
+	case "alias":
+		handleAlias(os.Args[2:])
+	case "new":
+		handleNew(os.Args[2:])
+	case "msg":
+		handleMsg(os.Args[2:])
+	case "version", "--version", "-v":
+		version()
+	case "-h", "--help", "help":
+		usage()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
+		usage()
+		os.Exit(1)
+	}
+}
+
+func handleUser(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: gjlues user <add|use|list|rm|current>")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "add":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: gjlues user add <name> <key>")
+			os.Exit(1)
+		}
+		userAdd(args[1], args[2])
+	case "use":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: gjlues user use <name>")
+			os.Exit(1)
+		}
+		userUse(args[1])
+	case "list":
+		userList()
+	case "rm":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: gjlues user rm <name>")
+			os.Exit(1)
+		}
+		userRm(args[1])
+	case "current":
+		c := loadConfig()
+		if k := os.Getenv("GJLUES_API_KEY"); k != "" {
+			fmt.Println("Current user: (env:GJLUES_API_KEY)")
+			return
+		}
+		if c.CurrentUser == "" {
+			fmt.Println("Current user: (none)")
+		} else {
+			fmt.Printf("Current user: %s\n", c.CurrentUser)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown user command: %s\n", args[0])
+		os.Exit(1)
+	}
+}
+
+func handleRepo(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: gjlues repo <add|list|rm|use>")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "add":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: gjlues repo add <alias> <source>")
+			os.Exit(1)
+		}
+		sourceAliasAdd(args[1], args[2])
+	case "list":
+		sourceAliasList()
+	case "rm":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: gjlues repo rm <alias>")
+			os.Exit(1)
+		}
+		sourceAliasRm(args[1])
+	case "use":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: gjlues repo use <alias>")
+			os.Exit(1)
+		}
+		sourceUse(args[1])
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown repo command: %s\n", args[0])
+		os.Exit(1)
+	}
+}
+
+func handleAlias(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: gjlues alias <add|list|rm>")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "add":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: gjlues alias add <name> <sessionID>")
+			os.Exit(1)
+		}
+		sessionAliasAdd(args[1], args[2])
+	case "list":
+		sessionAliasList()
+	case "rm":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: gjlues alias rm <name>")
+			os.Exit(1)
+		}
+		sessionAliasRm(args[1])
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown alias command: %s\n", args[0])
+		os.Exit(1)
+	}
+}
+
+func handleNew(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: gjlues new \"prompt\"")
+		fmt.Fprintln(os.Stderr, "       gjlues new \"prompt\" --repo=<alias>")
+		os.Exit(1)
+	}
+	
+	// Check for --repo flag
+	repo := ""
+	var promptParts []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "--repo=") {
+			repo = strings.TrimPrefix(a, "--repo=")
+		} else {
+			promptParts = append(promptParts, a)
+		}
+	}
+	
+	if len(promptParts) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: gjlues new \"prompt\"")
+		os.Exit(1)
+	}
+	
+	newSession(strings.Join(promptParts, " "), repo)
+}
+
+func handleMsg(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: gjlues msg <list|send|approve>")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "list":
+		msgList(args[1:])
+	case "send":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: gjlues msg send <sessionAlias> \"text\"")
+			os.Exit(1)
+		}
+		msgSend(args[1], strings.Join(args[2:], " "))
+	case "approve":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: gjlues msg approve <sessionAlias>")
+			os.Exit(1)
+		}
+		msgApprove(args[1])
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown msg command: %s\n", args[0])
+		os.Exit(1)
+	}
+}
