@@ -196,71 +196,88 @@ func userRm(name string) {
 
 func sources(args []string) {
 	fields, _ := parseFields(args)
-	
+	if len(fields) == 0 {
+		fields = []string{"alias", "id", "name", "owner", "repo", "branch"}
+	}
+
 	key := readKey()
-	resp, err := do(key, "GET", "/sources")
-	if err != nil {
-		die(err)
-	}
-	defer resp.Body.Close()
+	pageToken := ""
+	first := true
 
-	var r struct {
-		Sources []struct {
-			Name         string `json:"name"`
-			ID           string `json:"id"`
-			GithubRepo   *struct {
-				Owner string `json:"owner"`
-				Repo  string `json:"repo"`
-				DefaultBranch *struct {
-					DisplayName string `json:"displayName"`
-				} `json:"defaultBranch"`
-			} `json:"githubRepo"`
-		} `json:"sources"`
-	}
-	json.NewDecoder(resp.Body).Decode(&r)
+	for {
+		path := "/sources?pageSize=100"
+		if pageToken != "" {
+			path += "&pageToken=" + url.QueryEscape(pageToken)
+		}
 
-	if len(r.Sources) == 0 {
-		fmt.Println("No sources found.")
-		return
-	}
+		resp, err := do(key, "GET", path)
+		if err != nil {
+			die(err)
+		}
 
-	c := loadConfig()
-	reverseAlias := make(map[string]string)
-	for alias, src := range c.RepoAlias {
-		reverseAlias[src] = alias
-	}
+		var r struct {
+			Sources []struct {
+				Name       string `json:"name"`
+				ID         string `json:"id"`
+				GithubRepo *struct {
+					Owner         string `json:"owner"`
+					Repo          string `json:"repo"`
+					DefaultBranch *struct {
+						DisplayName string `json:"displayName"`
+					} `json:"defaultBranch"`
+				} `json:"githubRepo"`
+			} `json:"sources"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		json.NewDecoder(resp.Body).Decode(&r)
+		resp.Body.Close()
 
-	// Print header
-	headerFields := fields
-	if len(headerFields) == 0 {
-		headerFields = []string{"name", "id", "owner", "repo", "branch", "alias"}
-	}
-	fmt.Println(strings.Join(headerFields, ","))
+		if first {
+			fmt.Println(strings.Join(fields, ","))
+			first = false
+		}
 
-	for _, s := range r.Sources {
-		owner := ""
-		repo := ""
-		branch := ""
-		if s.GithubRepo != nil {
-			owner = s.GithubRepo.Owner
-			repo = s.GithubRepo.Repo
-			if s.GithubRepo.DefaultBranch != nil {
-				branch = s.GithubRepo.DefaultBranch.DisplayName
+		if len(r.Sources) == 0 && pageToken == "" {
+			fmt.Println("No sources found.")
+			return
+		}
+
+		c := loadConfig()
+		reverseAlias := make(map[string]string)
+		for alias, src := range c.RepoAlias {
+			reverseAlias[src] = alias
+		}
+
+		for _, s := range r.Sources {
+			owner := ""
+			repo := ""
+			branch := ""
+			if s.GithubRepo != nil {
+				owner = s.GithubRepo.Owner
+				repo = s.GithubRepo.Repo
+				if s.GithubRepo.DefaultBranch != nil {
+					branch = s.GithubRepo.DefaultBranch.DisplayName
+				}
 			}
+			alias := reverseAlias[s.Name]
+			if alias == "" {
+				alias = "-"
+			}
+			values := map[string]string{
+				"name":   s.Name,
+				"id":     s.ID,
+				"owner":  owner,
+				"repo":   repo,
+				"branch": branch,
+				"alias":  alias,
+			}
+			fmt.Println(csvFields(fields, values))
 		}
-		alias := reverseAlias[s.Name]
-		if alias == "" {
-			alias = "-"
+
+		pageToken = r.NextPageToken
+		if pageToken == "" {
+			break
 		}
-		values := map[string]string{
-			"name":    s.Name,
-			"id":      s.ID,
-			"owner":   owner,
-			"repo":    repo,
-			"branch":  branch,
-			"alias":   alias,
-		}
-		fmt.Println(csvFields(fields, values))
 	}
 }
 
@@ -315,62 +332,75 @@ func sourceUse(alias string) {
 
 func sessions(args []string) {
 	fields, _ := parseFields(args)
-	
+	if len(fields) == 0 {
+		fields = []string{"alias", "id", "state", "title", "created", "name"}
+	}
+
 	key := readKey()
-	resp, err := do(key, "GET", "/sessions")
-	if err != nil {
-		die(err)
-	}
-	defer resp.Body.Close()
+	pageToken := ""
+	first := true
 
-	var r struct {
-		Sessions []struct {
-			Name       string `json:"name"`
-			ID         string `json:"id"`
-			Title      string `json:"title"`
-			State      string `json:"state"`
-			CreateTime string `json:"createTime"`
-		} `json:"sessions"`
-		NextPageToken string `json:"nextPageToken"`
-	}
-	json.NewDecoder(resp.Body).Decode(&r)
-
-	if len(r.Sessions) == 0 {
-		fmt.Println("No sessions found.")
-		return
-	}
-
-	c := loadConfig()
-	reverseAlias := make(map[string]string)
-	for alias, id := range c.SessionAlias {
-		reverseAlias[id] = alias
-	}
-
-	// Print header
-	headerFields := fields
-	if len(headerFields) == 0 {
-		headerFields = []string{"alias", "id", "state", "title", "created", "name"}
-	}
-	fmt.Println(strings.Join(headerFields, ","))
-
-	for _, s := range r.Sessions {
-		t, _ := time.Parse(time.RFC3339, s.CreateTime)
-		alias := reverseAlias[s.ID]
-		if alias == "" {
-			alias = "-"
+	for {
+		path := "/sessions?pageSize=100"
+		if pageToken != "" {
+			path += "&pageToken=" + url.QueryEscape(pageToken)
 		}
-		values := map[string]string{
-			"alias":   alias,
-			"id":      s.ID,
-			"state":   s.State,
-			"title":   s.Title,
-			"created": t.Local().Format("2006-01-02 15:04:05"),
-			"name":    s.Name,
+
+		resp, err := do(key, "GET", path)
+		if err != nil {
+			die(err)
 		}
-		fmt.Println(csvFields(fields, values))
-	}
-	if r.NextPageToken != "" {
-		fmt.Fprintf(os.Stderr, "# nextPageToken=%s\n", r.NextPageToken)
+
+		var r struct {
+			Sessions []struct {
+				Name       string `json:"name"`
+				ID         string `json:"id"`
+				Title      string `json:"title"`
+				State      string `json:"state"`
+				CreateTime string `json:"createTime"`
+			} `json:"sessions"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		json.NewDecoder(resp.Body).Decode(&r)
+		resp.Body.Close()
+
+		if first {
+			fmt.Println(strings.Join(fields, ","))
+			first = false
+		}
+
+		if len(r.Sessions) == 0 && pageToken == "" {
+			fmt.Println("No sessions found.")
+			return
+		}
+
+		c := loadConfig()
+		reverseAlias := make(map[string]string)
+		for alias, id := range c.SessionAlias {
+			reverseAlias[id] = alias
+		}
+
+		for _, s := range r.Sessions {
+			t, _ := time.Parse(time.RFC3339, s.CreateTime)
+			alias := reverseAlias[s.ID]
+			if alias == "" {
+				alias = "-"
+			}
+			values := map[string]string{
+				"alias":   alias,
+				"id":      s.ID,
+				"state":   s.State,
+				"title":   s.Title,
+				"created": t.Local().Format("2006-01-02 15:04:05"),
+				"name":    s.Name,
+			}
+			fmt.Println(csvFields(fields, values))
+		}
+
+		pageToken = r.NextPageToken
+		if pageToken == "" {
+			break
+		}
 	}
 }
 
@@ -466,49 +496,63 @@ func msgList(args []string) {
 
 	sessionID := resolveSessionID(sessionAlias)
 	key := readKey()
-	resp, err := do(key, "GET", fmt.Sprintf("/sessions/%s/activities", sessionID))
-	if err != nil {
-		die(err)
-	}
-	defer resp.Body.Close()
+	pageToken := ""
+	first := true
 
-	var r struct {
-		Activities []struct {
-			Name        string `json:"name"`
-			ID          string `json:"id"`
-			Description string `json:"description"`
-			Originator  string `json:"originator"`
-			CreateTime  string `json:"createTime"`
-		} `json:"activities"`
-		NextPageToken string `json:"nextPageToken"`
-	}
-	json.NewDecoder(resp.Body).Decode(&r)
-
-	if len(r.Activities) == 0 {
-		fmt.Println("No activities found.")
-		return
-	}
-
-	// Print header
-	headerFields := fields
-	if len(headerFields) == 0 {
-		headerFields = []string{"id", "originator", "description", "created"}
-	}
-	fmt.Println(strings.Join(headerFields, ","))
-
-	for _, a := range r.Activities {
-		t, _ := time.Parse(time.RFC3339, a.CreateTime)
-		values := map[string]string{
-			"id":          a.ID,
-			"originator":  a.Originator,
-			"description": a.Description,
-			"created":     t.Local().Format("2006-01-02 15:04:05"),
-			"name":        a.Name,
+	for {
+		path := fmt.Sprintf("/sessions/%s/activities?pageSize=100", sessionID)
+		if pageToken != "" {
+			path += "&pageToken=" + url.QueryEscape(pageToken)
 		}
-		fmt.Println(csvFields(fields, values))
-	}
-	if r.NextPageToken != "" {
-		fmt.Fprintf(os.Stderr, "# nextPageToken=%s\n", r.NextPageToken)
+
+		resp, err := do(key, "GET", path)
+		if err != nil {
+			die(err)
+		}
+
+		var r struct {
+			Activities []struct {
+				Name        string `json:"name"`
+				ID          string `json:"id"`
+				Description string `json:"description"`
+				Originator  string `json:"originator"`
+				CreateTime  string `json:"createTime"`
+			} `json:"activities"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		json.NewDecoder(resp.Body).Decode(&r)
+		resp.Body.Close()
+
+		if first {
+			headerFields := fields
+			if len(headerFields) == 0 {
+				headerFields = []string{"id", "originator", "description", "created"}
+			}
+			fmt.Println(strings.Join(headerFields, ","))
+			first = false
+		}
+
+		if len(r.Activities) == 0 && pageToken == "" {
+			fmt.Println("No activities found.")
+			return
+		}
+
+		for _, a := range r.Activities {
+			t, _ := time.Parse(time.RFC3339, a.CreateTime)
+			values := map[string]string{
+				"id":          a.ID,
+				"originator":  a.Originator,
+				"description": a.Description,
+				"created":     t.Local().Format("2006-01-02 15:04:05"),
+				"name":        a.Name,
+			}
+			fmt.Println(csvFields(fields, values))
+		}
+
+		pageToken = r.NextPageToken
+		if pageToken == "" {
+			break
+		}
 	}
 }
 
