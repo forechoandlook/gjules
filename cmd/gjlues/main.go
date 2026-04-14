@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -704,6 +706,105 @@ func selfUpdate() {
 	fmt.Printf("Updated to %s!\n", latestVersion)
 }
 
+func handleFeedback(args []string) {
+	repo := "forechoandlook/gjlues"
+	issuesURL := fmt.Sprintf("https://github.com/%s/issues/new", repo)
+
+	// Parse flags
+	openBrowser := false
+	category := ""
+	var description []string
+	for _, a := range args {
+		switch {
+		case a == "--open":
+			openBrowser = true
+		case strings.HasPrefix(a, "--type="):
+			category = strings.TrimPrefix(a, "--type=")
+		default:
+			description = append(description, a)
+		}
+	}
+
+	// Valid categories
+	validCategories := map[string]string{
+		"bug":     "bug",
+		"docs":    "documentation",
+		"feature": "feature",
+		"other":   "other",
+	}
+	if category != "" {
+		if _, ok := validCategories[category]; !ok {
+			fmt.Fprintf(os.Stderr, "Invalid type: %s. Valid types: bug, docs, feature, other\n", category)
+			os.Exit(1)
+		}
+	}
+
+	// Interactive mode if no description
+	if len(description) == 0 {
+		fmt.Println("Available categories:")
+		fmt.Println("  bug      - Report a bug")
+		fmt.Println("  docs     - Documentation issue")
+		fmt.Println("  feature  - Feature request")
+		fmt.Println("  other    - Other feedback")
+		fmt.Print("Category (bug/docs/feature/other): ")
+		fmt.Scanln(&category)
+		if _, ok := validCategories[category]; !ok {
+			fmt.Fprintln(os.Stderr, "Invalid category, defaulting to 'other'")
+			category = "other"
+		}
+		fmt.Print("Description: ")
+		reader := bufio.NewReader(os.Stdin)
+		desc, _ := reader.ReadString('\n')
+		description = []string{strings.TrimSpace(desc)}
+	}
+
+	if len(description) == 0 {
+		fmt.Fprintln(os.Stderr, "Description is required")
+		os.Exit(1)
+	}
+
+	desc := strings.Join(description, " ")
+	title := fmt.Sprintf("[%s] %s", category, desc)
+
+	// Generate issue body
+	body := fmt.Sprintf(
+		"## Type\n%s\n\n## Description\n%s\n\n## Environment\n- **Version**: %s\n- **OS**: %s/%s\n- **Commit**: %s\n",
+		category, desc, Version, runtime.GOOS, runtime.GOARCH, GitCommit,
+	)
+
+	if openBrowser {
+		url := fmt.Sprintf("%s?title=%s&body=%s",
+			issuesURL,
+			url.QueryEscape(title),
+			url.QueryEscape(body),
+		)
+		fmt.Printf("Opening GitHub issue page...\n")
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("open", url)
+		case "linux":
+			cmd = exec.Command("xdg-open", url)
+		case "windows":
+			cmd = exec.Command("cmd", "/c", "start", url)
+		}
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to open browser. Please visit:\n%s\n", url)
+		}
+	} else {
+		// Save locally
+		fname := fmt.Sprintf("feedback_%s_%s.md",
+			time.Now().Format("20060102_150405"),
+			category)
+		content := fmt.Sprintf("# %s\n\n%s\n", title, body)
+		if err := os.WriteFile(fname, []byte(content), 0644); err != nil {
+			die(err)
+		}
+		fmt.Printf("Feedback saved to %s\n", fname)
+		fmt.Printf("To submit, run: gjlues feedback --open --type=%s \"%s\"\n", category, desc)
+	}
+}
+
 func usage() {
 	fmt.Fprintf(os.Stderr, `gjlues - Jules CLI
 
@@ -733,6 +834,9 @@ Usage:
 
   gjlues version                     Show version
   gjlues update                      Self-update to latest release
+  gjlues feedback [desc]             Local feedback (saves to file)
+  gjlues feedback --open [desc]      Open GitHub issue
+  gjlues feedback --type=bug "msg"   Specify category (bug/docs/feature/other)
 
 Fields:
   sessions: alias,id,state,title,created,name
@@ -772,6 +876,8 @@ func main() {
 		version()
 	case "update":
 		selfUpdate()
+	case "feedback":
+		handleFeedback(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	default:
