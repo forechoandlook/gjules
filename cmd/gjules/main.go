@@ -673,20 +673,31 @@ func selfUpdate() {
 	// Detect OS and arch
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
-	if goarch == "x86_64" {
-		goarch = "amd64"
-	}
 
 	// Find the matching asset
 	var assetURL string
+	var assetName string
 	for _, a := range rel.Assets {
-		if strings.Contains(a.Name, goos) && strings.Contains(a.Name, goarch) {
+		name := strings.ToLower(a.Name)
+		// Match OS
+		osMatch := strings.Contains(name, strings.ToLower(goos))
+		// Match Arch
+		archMatch := strings.Contains(name, strings.ToLower(goarch))
+		if !archMatch && (goarch == "amd64" || goarch == "x86_64") {
+			archMatch = strings.Contains(name, "amd64") || strings.Contains(name, "x86_64")
+		}
+		if !archMatch && (goarch == "arm64" || goarch == "aarch64") {
+			archMatch = strings.Contains(name, "arm64") || strings.Contains(name, "aarch64")
+		}
+
+		if osMatch && archMatch && (strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".zip")) {
 			assetURL = a.URL
+			assetName = a.Name
 			break
 		}
 	}
 	if assetURL == "" {
-		fmt.Fprintf(os.Stderr, "No binary found for %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		fmt.Fprintf(os.Stderr, "No binary found for %s/%s\n", goos, goarch)
 		fmt.Fprintf(os.Stderr, "Download manually: https://github.com/%s/releases/latest\n", repo)
 		os.Exit(1)
 	}
@@ -700,12 +711,8 @@ func selfUpdate() {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	tmpFile := tmpDir + "/gjules.tar.gz"
-	if runtime.GOOS == "windows" {
-		tmpFile = tmpDir + "/gjules.zip"
-	}
-
-	out, err := os.Create(tmpFile)
+	archivePath := filepath.Join(tmpDir, assetName)
+	out, err := os.Create(archivePath)
 	if err != nil {
 		die(err)
 	}
@@ -715,21 +722,41 @@ func selfUpdate() {
 	if err != nil {
 		die(err)
 	}
+	defer dlResp.Body.Close()
+	if dlResp.StatusCode != http.StatusOK {
+		die(fmt.Errorf("failed to download: %s", dlResp.Status))
+	}
 	io.Copy(out, dlResp.Body)
 	out.Close()
-	dlResp.Body.Close()
 
 	// Extract
-	exePath := tmpDir + "/gjules"
-	if runtime.GOOS == "windows" {
-		exePath = tmpDir + "/gjules.exe"
+	binaryName := "gjules"
+	if goos == "windows" {
+		binaryName = "gjules.exe"
 	}
-	cmd := exec.Command("tar", "-xzf", tmpFile, "-C", tmpDir)
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("powershell", "-Command", "Expand-Archive", "-Path", tmpFile, "-DestinationPath", tmpDir)
+
+	if strings.HasSuffix(assetName, ".tar.gz") {
+		cmd := exec.Command("tar", "-xzf", archivePath, "-C", tmpDir)
+		if err := cmd.Run(); err != nil {
+			die(fmt.Errorf("failed to extract tar.gz: %w", err))
+		}
+	} else if strings.HasSuffix(assetName, ".zip") {
+		if goos == "windows" {
+			cmd := exec.Command("powershell", "-Command", "Expand-Archive", "-Path", archivePath, "-DestinationPath", tmpDir)
+			if err := cmd.Run(); err != nil {
+				die(fmt.Errorf("failed to extract zip: %w", err))
+			}
+		} else {
+			cmd := exec.Command("unzip", "-q", archivePath, "-d", tmpDir)
+			if err := cmd.Run(); err != nil {
+				die(fmt.Errorf("failed to extract zip: %w", err))
+			}
+		}
 	}
-	if err := cmd.Run(); err != nil {
-		die(fmt.Errorf("failed to extract: %w", err))
+
+	extractedBinary := filepath.Join(tmpDir, binaryName)
+	if _, err := os.Stat(extractedBinary); err != nil {
+		die(fmt.Errorf("binary %s not found in archive", binaryName))
 	}
 
 	// Replace current binary
@@ -737,16 +764,25 @@ func selfUpdate() {
 	if err != nil {
 		die(err)
 	}
-	if err := os.Rename(exePath, exe); err != nil {
-		// Fallback: copy
-		src, _ := os.Open(exePath)
+
+	// On Unix, we should remove the old binary first or move it to a temp location 
+	// because we can't overwrite a running binary.
+	oldExe := exe + ".old"
+	if err := os.Rename(exe, oldExe); err != nil {
+		die(fmt.Errorf("failed to move current binary: %w", err))
+	}
+	defer os.Remove(oldExe)
+
+	if err := os.Rename(extractedBinary, exe); err != nil {
+		// If rename fails, try to copy
+		src, _ := os.Open(extractedBinary)
 		defer src.Close()
 		dst, _ := os.OpenFile(exe, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
 		defer dst.Close()
 		io.Copy(dst, src)
 	}
 
-	fmt.Printf("Updated to %s!\n", latestVersion)
+	fmt.Printf("Successfully updated to %s!\n", rel.TagName)
 }
 
 func handleFeedback(args []string) {
