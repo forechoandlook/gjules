@@ -60,7 +60,10 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 # Download and extract
 echo "Downloading $URL..."
-curl -sL "$URL" -o "${TMPDIR}/${ASSET}"
+if ! curl -sfL "$URL" -o "${TMPDIR}/${ASSET}"; then
+  echo "Error: Failed to download $URL. The asset may not be available for your OS/Arch yet."
+  exit 1
+fi
 if [ "$OS" = "windows" ]; then
   unzip -q "${TMPDIR}/${ASSET}" -d "$TMPDIR"
 else
