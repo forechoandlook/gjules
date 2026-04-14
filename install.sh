@@ -4,6 +4,7 @@ set -euo pipefail
 REPO="forechoandlook/gjlues"
 BINARY="gjlues"
 INSTALL_DIR="/usr/local/bin"
+BIN_PATH="$INSTALL_DIR/$BINARY"
 
 # Detect OS and arch
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -31,7 +32,17 @@ if [ -z "$LATEST" ]; then
   exit 1
 fi
 
-echo "Installing gjlues v${LATEST} for ${OS}/${ARCH}..."
+# Check if already installed
+if [ -f "$BIN_PATH" ]; then
+  CURRENT=$("$BIN_PATH" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+  if [ "$CURRENT" = "$LATEST" ]; then
+    echo "gjlues v${LATEST} is already installed. Nothing to do."
+    exit 0
+  fi
+  echo "Updating from v${CURRENT:-unknown} to v${LATEST}..."
+else
+  echo "Installing gjlues v${LATEST} for ${OS}/${ARCH}..."
+fi
 
 # Build download URL
 ASSET="gjlues_${LATEST}_${OS}_${ARCH}.tar.gz"
@@ -47,7 +58,7 @@ tar -xzf "${TMPDIR}/${ASSET}" -C "$TMPDIR"
 
 # Install
 chmod +x "$TMPDIR/$BINARY"
-sudo mv "$TMPDIR/$BINARY" "$INSTALL_DIR/$BINARY"
+sudo mv "$TMPDIR/$BINARY" "$BIN_PATH"
 
-echo "Installed to $INSTALL_DIR/$BINARY"
+echo "Installed v${LATEST} to $BIN_PATH"
 echo "Run 'gjlues version' to verify"
