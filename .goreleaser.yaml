@@ -2,7 +2,8 @@ version: 2
 
 before:
   hooks:
-    - go mod tidy
+    - cmd: go mod tidy
+      dir: cmd/gjlues
 
 builds:
   - dir: cmd/gjlues
@@ -22,8 +23,7 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
-    name_template: >-
+  - name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - README.md
