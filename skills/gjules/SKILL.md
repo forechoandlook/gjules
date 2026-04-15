@@ -2,7 +2,7 @@
 name: gjules
 description: "gjules CLI, Google's AI coding agent. 连接 GitHub 的仓库，在云端异步地处理任务，如修复 bugs、添加文档和构建新功能。"
 author: zwy
-version: 0.2.0
+version: 0.6.0
 ---
 install: `curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/install.sh | bash`
 uninstall: `curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/uninstall.sh | bash`
