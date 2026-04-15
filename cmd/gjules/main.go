@@ -34,6 +34,18 @@ type Config struct {
 	SessionAlias  map[string]string `json:"sessionAlias,omitempty"`  // alias -> full ID
 	RepoAlias     map[string]string `json:"repoAlias,omitempty"`     // alias -> source name (e.g. sources/github-org-repo)
 	CurrentRepo   string            `json:"currentRepo,omitempty"`   // default repo alias or full source name
+	
+	// Cache
+	SourcesCache []CachedSource `json:"sourcesCache,omitempty"`
+	CacheTime    time.Time      `json:"cacheTime,omitempty"`
+}
+
+type CachedSource struct {
+	Name   string `json:"name"`
+	ID     string `json:"id"`
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Branch string `json:"branch"`
 }
 
 func configPath() string {
@@ -212,8 +224,25 @@ func sources(args []string) {
 		fields = []string{"alias", "id", "name", "owner", "repo", "branch"}
 	}
 
+	limit := 20
+	refresh := false
+	for _, a := range args {
+		if strings.HasPrefix(a, "--limit=") {
+			fmt.Sscanf(a, "--limit=%d", &limit)
+		} else if a == "--refresh" {
+			refresh = true
+		}
+	}
+
+	c := loadConfig()
+	if !refresh && len(c.SourcesCache) > 0 && time.Since(c.CacheTime) < 24*time.Hour {
+		printSources(fields, c.SourcesCache, limit)
+		return
+	}
+
 	key := readKey()
 	pageToken := ""
+	var allSources []CachedSource
 	first := true
 
 	for {
@@ -244,23 +273,6 @@ func sources(args []string) {
 			NextPageToken string `json:"nextPageToken"`
 		}
 		json.NewDecoder(resp.Body).Decode(&r)
-		resp.Body.Close()
-
-		if first {
-			fmt.Println(strings.Join(fields, ","))
-			first = false
-		}
-
-		if len(r.Sources) == 0 && pageToken == "" {
-			fmt.Println("No sources found.")
-			return
-		}
-
-		c := loadConfig()
-		reverseAlias := make(map[string]string)
-		for alias, src := range c.RepoAlias {
-			reverseAlias[src] = alias
-		}
 
 		for _, s := range r.Sources {
 			owner := ""
@@ -273,25 +285,56 @@ func sources(args []string) {
 					branch = s.GithubRepo.DefaultBranch.DisplayName
 				}
 			}
-			alias := reverseAlias[s.Name]
-			if alias == "" {
-				alias = "-"
-			}
-			values := map[string]string{
-				"name":   s.Name,
-				"id":     s.ID,
-				"owner":  owner,
-				"repo":   repo,
-				"branch": branch,
-				"alias":  alias,
-			}
-			fmt.Println(csvFields(fields, values))
+			allSources = append(allSources, CachedSource{
+				Name:   s.Name,
+				ID:     s.ID,
+				Owner:  owner,
+				Repo:   repo,
+				Branch: branch,
+			})
 		}
 
 		pageToken = r.NextPageToken
 		if pageToken == "" {
 			break
 		}
+	}
+
+	c.SourcesCache = allSources
+	c.CacheTime = time.Now()
+	saveConfig(c)
+
+	if first {
+		fmt.Println(strings.Join(fields, ","))
+		first = false
+	}
+	printSources(fields, allSources, limit)
+}
+
+func printSources(fields []string, sources []CachedSource, limit int) {
+	c := loadConfig()
+	reverseAlias := make(map[string]string)
+	for alias, src := range c.RepoAlias {
+		reverseAlias[src] = alias
+	}
+
+	for i, s := range sources {
+		if limit > 0 && i >= limit {
+			break
+		}
+		alias := reverseAlias[s.Name]
+		if alias == "" {
+			alias = "-"
+		}
+		values := map[string]string{
+			"name":   s.Name,
+			"id":     s.ID,
+			"owner":  s.Owner,
+			"repo":   s.Repo,
+			"branch": s.Branch,
+			"alias":  alias,
+		}
+		fmt.Println(csvFields(fields, values))
 	}
 }
 
@@ -350,12 +393,24 @@ func sessions(args []string) {
 		fields = []string{"alias", "id", "state", "title", "created", "name"}
 	}
 
+	limit := 20 // Default limit for sessions
+	for _, a := range args {
+		if strings.HasPrefix(a, "--limit=") {
+			fmt.Sscanf(a, "--limit=%d", &limit)
+		}
+	}
+
 	key := readKey()
 	pageToken := ""
+	count := 0
 	first := true
 
 	for {
-		path := "/sessions?pageSize=100"
+		pageSize := 100
+		if limit > 0 && limit-count < 100 {
+			pageSize = limit - count
+		}
+		path := fmt.Sprintf("/sessions?pageSize=%d", pageSize)
 		if pageToken != "" {
 			path += "&pageToken=" + url.QueryEscape(pageToken)
 		}
@@ -378,7 +433,6 @@ func sessions(args []string) {
 			NextPageToken string `json:"nextPageToken"`
 		}
 		json.NewDecoder(resp.Body).Decode(&r)
-		resp.Body.Close()
 
 		if first {
 			fmt.Println(strings.Join(fields, ","))
@@ -411,6 +465,10 @@ func sessions(args []string) {
 				"name":    s.Name,
 			}
 			fmt.Println(csvFields(fields, values))
+			count++
+			if limit > 0 && count >= limit {
+				return
+			}
 		}
 
 		pageToken = r.NextPageToken
@@ -506,18 +564,30 @@ func csvEscape(s string) string {
 func msgList(args []string) {
 	fields, remaining := parseFields(args)
 	if len(remaining) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjules msg list <sessionAlias> [--fields=id,originator,description,created]")
+		fmt.Fprintln(os.Stderr, "Usage: gjules msg list <sessionAlias> [--fields=...] [--limit=N]")
 		os.Exit(1)
 	}
 	sessionAlias := remaining[0]
 
+	limit := 20
+	for _, a := range args {
+		if strings.HasPrefix(a, "--limit=") {
+			fmt.Sscanf(a, "--limit=%d", &limit)
+		}
+	}
+
 	sessionID := resolveSessionID(sessionAlias)
 	key := readKey()
 	pageToken := ""
+	count := 0
 	first := true
 
 	for {
-		path := fmt.Sprintf("/sessions/%s/activities?pageSize=100", sessionID)
+		pageSize := 100
+		if limit > 0 && limit-count < 100 {
+			pageSize = limit - count
+		}
+		path := fmt.Sprintf("/sessions/%s/activities?pageSize=%d", sessionID, pageSize)
 		if pageToken != "" {
 			path += "&pageToken=" + url.QueryEscape(pageToken)
 		}
@@ -531,21 +601,26 @@ func msgList(args []string) {
 
 		var r struct {
 			Activities []struct {
-				Name        string `json:"name"`
-				ID          string `json:"id"`
-				Description string `json:"description"`
-				Originator  string `json:"originator"`
-				CreateTime  string `json:"createTime"`
+				Name          string `json:"name"`
+				ID            string `json:"id"`
+				Description   string `json:"description"`
+				Originator    string `json:"originator"`
+				CreateTime    string `json:"createTime"`
+				AgentMessaged *struct {
+					Text string `json:"text"`
+				} `json:"agentMessage"`
+				UserMessaged *struct {
+					Prompt string `json:"prompt"`
+				} `json:"userMessage"`
 			} `json:"activities"`
 			NextPageToken string `json:"nextPageToken"`
 		}
 		json.NewDecoder(resp.Body).Decode(&r)
-		resp.Body.Close()
 
 		if first {
 			headerFields := fields
 			if len(headerFields) == 0 {
-				headerFields = []string{"id", "originator", "description", "created"}
+				headerFields = []string{"id", "originator", "description", "content", "created"}
 			}
 			fmt.Println(strings.Join(headerFields, ","))
 			first = false
@@ -557,15 +632,37 @@ func msgList(args []string) {
 		}
 
 		for _, a := range r.Activities {
+			content := ""
+			if a.AgentMessaged != nil {
+				content = a.AgentMessaged.Text
+			} else if a.UserMessaged != nil {
+				content = a.UserMessaged.Prompt
+			}
+			// Clean up content for CSV (remove newlines for preview)
+			content = strings.ReplaceAll(content, "\n", " ")
+			if len(content) > 50 {
+				content = content[:47] + "..."
+			}
+
 			t, _ := time.Parse(time.RFC3339, a.CreateTime)
 			values := map[string]string{
 				"id":          a.ID,
 				"originator":  a.Originator,
 				"description": a.Description,
+				"content":     content,
 				"created":     t.Local().Format("2006-01-02 15:04:05"),
 				"name":        a.Name,
 			}
-			fmt.Println(csvFields(fields, values))
+			// Use the requested order of fields
+			selectedFields := fields
+			if len(selectedFields) == 0 {
+				selectedFields = []string{"id", "originator", "description", "content", "created"}
+			}
+			fmt.Println(csvFields(selectedFields, values))
+			count++
+			if limit > 0 && count >= limit {
+				return
+			}
 		}
 
 		pageToken = r.NextPageToken
@@ -635,7 +732,7 @@ func selectFields(allFields []string, values map[string]string) []string {
 
 func orderedKeys(m map[string]string) []string {
 	// Predefined order for common fields
-	order := []string{"alias", "id", "state", "title", "created", "name", "originator", "description", "owner", "repo", "branch"}
+	order := []string{"alias", "id", "state", "title", "created", "name", "originator", "description", "content", "owner", "repo", "branch"}
 	seen := make(map[string]bool)
 	var result []string
 	for _, k := range order {
@@ -909,20 +1006,20 @@ Usage:
   gjules user rm <name>              Remove user
   gjules user current                Show current user
 
-  gjules sources [--fields=...]      List all sources (repos)
+  gjules sources [--limit=20] [--refresh]  List all sources (repos)
   gjules repo add <alias> <source>   Add repo alias
   gjules repo list                   List repo aliases
   gjules repo rm <alias>             Remove repo alias
   gjules repo use <alias>            Set default repo
 
-  gjules sessions [--fields=...]     List all sessions
+  gjules sessions [--limit=20]       List all sessions
   gjules alias add <name> <id>       Add session alias
   gjules alias list                  List session aliases
   gjules alias rm <name>             Remove session alias
   gjules new "prompt" [--repo=...]   Create session
   gjules new "prompt" --repo=<alias> Create session with specific repo
 
-  gjules msg list <alias> [--fields=...]  List activities
+  gjules msg list <alias> [--limit=20]  List activities
   gjules msg send <alias> "text"     Send message
   gjules msg approve <alias>         Approve plan
 
@@ -934,7 +1031,7 @@ Usage:
 Fields:
   sessions: alias,id,state,title,created,name
   sources:  name,id,owner,repo,branch,alias
-  msg list: id,originator,description,created,name
+  msg list: id,originator,description,content,created,name
 
 Environment:
   GJULES_API_KEY                     API key (overrides config)
