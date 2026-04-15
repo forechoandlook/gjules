@@ -599,6 +599,7 @@ func msgList(args []string) {
 		defer resp.Body.Close()
 		checkResp(resp)
 
+		bodyBytes, _ := io.ReadAll(resp.Body)
 		var r struct {
 			Activities []struct {
 				Name          string `json:"name"`
@@ -612,10 +613,24 @@ func msgList(args []string) {
 				UserMessaged *struct {
 					Prompt string `json:"prompt"`
 				} `json:"userMessage"`
+				PlanGenerated *struct {
+					Plan struct {
+						Steps []struct {
+							Title string `json:"title"`
+						} `json:"steps"`
+					} `json:"plan"`
+				} `json:"planGenerated"`
+				PlanApproved *struct {
+					PlanID string `json:"planId"`
+				} `json:"planApproved"`
+				ProgressUpdated *struct {
+					Title       string `json:"title"`
+					Description string `json:"description"`
+				} `json:"progressUpdated"`
 			} `json:"activities"`
 			NextPageToken string `json:"nextPageToken"`
 		}
-		json.NewDecoder(resp.Body).Decode(&r)
+		json.Unmarshal(bodyBytes, &r)
 
 		if first {
 			headerFields := fields
@@ -637,6 +652,19 @@ func msgList(args []string) {
 				content = a.AgentMessaged.Text
 			} else if a.UserMessaged != nil {
 				content = a.UserMessaged.Prompt
+			} else if a.PlanGenerated != nil {
+				var titles []string
+				for _, s := range a.PlanGenerated.Plan.Steps {
+					titles = append(titles, s.Title)
+				}
+				content = "Plan: " + strings.Join(titles, "; ")
+			} else if a.PlanApproved != nil {
+				content = "Plan Approved: " + a.PlanApproved.PlanID
+			} else if a.ProgressUpdated != nil {
+				content = a.ProgressUpdated.Title
+				if a.ProgressUpdated.Description != "" {
+					content += ": " + a.ProgressUpdated.Description
+				}
 			}
 			// Clean up content for CSV (remove newlines for preview)
 			content = strings.ReplaceAll(content, "\n", " ")
