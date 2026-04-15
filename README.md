@@ -1,94 +1,41 @@
-# gjules
+# gjules CLI
 
-A lightweight CLI for [Jules](https://jules.google) — Google's AI coding agent.
+`gjules` is a command-line interface for interacting with Jules, Google's AI coding agent. It allows you to create sessions, send messages, and manage repositories directly from your terminal.
 
-## 安装 skills 
+## Key Features
 
-`npx skills add forechoandlook/gjules --skill gjules`
+- **Multi-user Support**: Config & Cache stored per-user in `~/.gjules/users/`.
+- **Smart Notifications**: `msg wait` polls status and notifies you on macOS/Linux/Windows with popups and sound.
+- **Diff Viewer**: `msg list --git` specifically displays code changes (Git Patch).
+- **Session Focus**: `alias use <id>` to set a "current session" and stop typing IDs.
+- **Task Filters**: `sessions --filter=todo` to see only tasks requiring your action.
 
-## Install
+## Installation
 
 ```bash
 curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/install.sh | bash
 ```
 
-## Uninstall
+## Usage
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/uninstall.sh | bash
+gjules user add pro "YOUR_API_KEY"
+gjules user switch pro
+
+# Setup Repo
+gjules sources --limit=10
+gjules repo add myrepo sources/github/owner/repo
+gjules repo use myrepo
+
+# Workflow
+gjules new "Implement a simple health check endpoint"
+gjules msg wait # Go grab a coffee, it'll ping you!
+
+gjules msg list --git # Review code changes
+gjules msg approve # Done!
 ```
 
-## Quick Start
+## Contributing
 
-```bash
-# Add your API key
-gjules user add main "your-api-key-here"
-
-# Set default repo
-gjules sources                              # list available repos
-gjules repo add myrepo sources/github-...   # create alias
-gjules repo use myrepo                      # set default
-
-# Create a session
-gjules new "Add unit tests for the auth module"
-
-# Monitor progress
-gjules sessions                             # list sessions
-gjules msg list <alias>                     # view activities
-gjules msg send <alias> "Also add integration tests"
-gjules msg approve <alias>                  # approve plan
-
-# Feedback
-gjules feedback --type=bug "msg"            # Append to local JSONL (~/.gjules/feedback.jsonl)
-gjules feedback --open --type=bug           # Open GitHub issue with pre-filled content
-```
-
-## Commands
-
-| Command | Description |
-|---|---|
-| `gjules user add <name> <key>` | Add user with API key |
-| `gjules user use <name>` | Switch user |
-| `gjules user list` | List users |
-| `gjules user current` | Show current user |
-| `gjules user rm <name>` | Remove user |
-| `gjules sources [--fields=...]` | List connected repos |
-| `gjules repo add <alias> <src>` | Manage repo aliases |
-| `gjules repo list/rm/use` | Manage repo aliases |
-| `gjules sessions [--fields=...]` | List sessions |
-| `gjules alias add <name> <id>` | Manage session aliases |
-| `gjules alias list/rm` | Manage session aliases |
-| `gjules new "prompt" [--repo=...]` | Create session |
-| `gjules msg list <alias> [--fields=...]` | List activities |
-| `gjules msg send <alias> "text"` | Send message |
-| `gjules msg approve <alias>` | Approve plan |
-| `gjules version` | Show version |
-| `gjules update` | Self-update to latest release |
-| `gjules feedback` | Submit feedback |
-
-## Configuration
-
-- **Env var**: `GJULES_API_KEY` takes priority over config file
-- **Config**: `~/.gjules_config` — multi-user setup with aliases
-
-```json
-{
-  "users": {"alice": "key1"},
-  "currentUser": "alice",
-  "sessionAlias": {"test1": "abc123"},
-  "repoAlias": {"myrepo": "sources/github-org-repo"},
-  "currentRepo": "sources/github-org-repo"
-}
-```
-
-## Build from source
-
-```bash
-git clone https://github.com/forechoandlook/gjules.git
-cd gjules
-make build
-```
-
-## License
-
-MIT
+See `cmd/gjules/main.go` for the core logic. To run tests:
+`go test -v cmd/gjules/main.go cmd/gjules/main_test.go`

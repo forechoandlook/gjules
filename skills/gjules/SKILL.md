@@ -1,40 +1,43 @@
----
 name: gjules
 description: "gjules CLI, Google's AI coding agent. 连接 GitHub 的仓库，在云端异步地处理任务，如修复 bugs、添加文档和构建新功能。"
 author: zwy
-version: 0.1.0
+version: 0.2.0
 ---
 install: `curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/install.sh | bash`
 uninstall: `curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/uninstall.sh | bash`
 ## Quick Start
 ```bash
-# Add your API key
+# 1. Add your API key
 gjules user add main "your-api-key-here"
-# Set default repo
-gjules sources --limit=5 # list available repos
-gjules repo add myrepo sources/github-... # create alias
-gjules repo use myrepo # set default
-gjules new "Add unit tests for the auth module" # Create a session
-gjules new "prompt" --repo=<alias> #Create session with specific repo
-gjules sources [--fields=...]      #List all sources (repos)
-# Monitor progress
-gjules sessions # list sessions
-gjules msg list <alias>  --fields="content,content" # view activities
-gjules msg send <alias> "Also add integration tests"
-gjules msg approve <alias> # approve plan
-gjules feedback --type=bug "msg" # Append to local JSONL (~/.gjules/feedback.jsonl)
-gjules feedback --open --type=bug # Open GitHub issue with pre-filled content
-# Fields: sessions: alias,id,state,title,created,name; sources:  name,id,owner,repo,branch,alias; msg list: id,originator,description,created,name
+
+# 2. Setup Repo (Only once)
+gjules sources --limit=10               # List available repos
+gjules repo add myrepo sources/github/owner/repo 
+gjules repo use myrepo                  # Set as default
+
+# 3. Start a Task
+gjules new "Add unit tests for the auth module"
+gjules msg wait                         # Wait for Jules to finish (Beep & Notify!)
+
+# 4. Review & Converse
+gjules msg list --git                   # Review code changes (Diff)
+gjules msg send "Looks good, but fix the indent"
+gjules msg wait                         # Wait again...
+
+# 5. Approve
+gjules msg approve                      # One-click approval
+
+# Advanced List & Filter
+gjules sessions --filter=todo           # Show only tasks needing your action [!]
+gjules sessions --filter=active         # Show all in-progress tasks
+gjules alias use my-task                # Set "current session" to avoid typing ID
 ```
 ## Configuration
-- Env var: `GJULES_API_KEY` takes priority over config file
-- Config: `~/.gjules_config` — multi-user setup with aliases
-```json
-{
-  "users": {"alice": "key1"},
-  "currentUser": "alice",
-  "sessionAlias": {"test1": "abc123"},
-  "repoAlias": {"myrepo": "sources/github-org-repo"},
-  "currentRepo": "sources/github-org-repo"
-}
-```
+- **Global Config**: `~/.gjules/config.json` (User list & Current user)
+- **User Data**: `~/.gjules/users/<username>/data.json` (Aliases, Cache, Current state)
+- **Env Var**: `GJULES_API_KEY` takes priority.
+
+## Fields Reference
+- **sessions**: `alias,id,state,title,created`
+- **sources**: `alias,id,owner,repo,branch`
+- **msg list**: `originator,content,created` (Add `--git` for Diff, `--detail` for Plan)
