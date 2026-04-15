@@ -192,6 +192,18 @@ func userRm(name string) {
 	fmt.Printf("User %q removed.\n", name)
 }
 
+func checkResp(resp *http.Response) {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var result map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&result)
+		fmt.Fprintf(os.Stderr, "Error: server returned status %s\n", resp.Status)
+		if b, err := json.MarshalIndent(result, "", "  "); err == nil {
+			fmt.Fprintf(os.Stderr, "%s\n", string(b))
+		}
+		os.Exit(1)
+	}
+}
+
 // --- Sources ---
 
 func sources(args []string) {
@@ -214,6 +226,8 @@ func sources(args []string) {
 		if err != nil {
 			die(err)
 		}
+		defer resp.Body.Close()
+		checkResp(resp)
 
 		var r struct {
 			Sources []struct {
@@ -350,6 +364,8 @@ func sessions(args []string) {
 		if err != nil {
 			die(err)
 		}
+		defer resp.Body.Close()
+		checkResp(resp)
 
 		var r struct {
 			Sessions []struct {
@@ -435,31 +451,32 @@ func sessionAliasRm(alias string) {
 	fmt.Printf("Session alias %q removed.\n", alias)
 }
 
-func newSession(prompt, repoAlias string) {
+func newSession(prompt, repoAlias string, repoSet bool) {
 	key := readKey()
 	c := loadConfig()
 	
 	body := map[string]interface{}{"prompt": prompt}
 	
-	// Add source context if repo specified
+	// Add source context if repo specified or use default if not explicitly set to empty
 	repo := repoAlias
-	if repo == "" {
+	if !repoSet && repo == "" {
 		repo = c.CurrentRepo
 	}
+	
 	if repo != "" {
 		src := resolveSource(repo)
-		if !strings.HasPrefix(src, "sources/") {
-			src = "sources/" + src
-		}
 		body["sourceContext"] = map[string]interface{}{
 			"source": src,
+			"githubRepoContext": map[string]interface{}{},
 		}
 	}
 	
-	_, result, err := doJSON(key, "POST", "/sessions", body)
+	resp, result, err := doJSON(key, "POST", "/sessions", body)
 	if err != nil {
 		die(err)
 	}
+	defer resp.Body.Close()
+	checkResp(resp)
 
 	fmt.Printf("Session created!\n")
 	if name, ok := result["name"].(string); ok {
@@ -509,6 +526,8 @@ func msgList(args []string) {
 		if err != nil {
 			die(err)
 		}
+		defer resp.Body.Close()
+		checkResp(resp)
 
 		var r struct {
 			Activities []struct {
@@ -565,6 +584,7 @@ func msgSend(sessionAlias, text string) {
 		die(err)
 	}
 	defer resp.Body.Close()
+	checkResp(resp)
 	fmt.Println("Message sent.")
 }
 
@@ -576,6 +596,7 @@ func msgApprove(sessionAlias string) {
 		die(err)
 	}
 	defer resp.Body.Close()
+	checkResp(resp)
 	fmt.Println("Plan approved.")
 }
 
@@ -1067,12 +1088,13 @@ func handleNew(args []string) {
 		os.Exit(1)
 	}
 	
-	// Check for --repo flag
 	repo := ""
+	repoSet := false
 	var promptParts []string
 	for _, a := range args {
 		if strings.HasPrefix(a, "--repo=") {
 			repo = strings.TrimPrefix(a, "--repo=")
+			repoSet = true
 		} else {
 			promptParts = append(promptParts, a)
 		}
@@ -1083,7 +1105,7 @@ func handleNew(args []string) {
 		os.Exit(1)
 	}
 	
-	newSession(strings.Join(promptParts, " "), repo)
+	newSession(strings.Join(promptParts, " "), repo, repoSet)
 }
 
 func handleMsg(args []string) {
