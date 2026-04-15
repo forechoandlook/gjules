@@ -492,10 +492,16 @@ func printSessions(fields []string, sessions []CachedSession, limit int) {
 		if alias == "" {
 			alias = "-"
 		}
+		
+		state := s.State
+		if strings.HasPrefix(state, "AWAITING_") {
+			state = "[!] " + state
+		}
+
 		values := map[string]string{
 			"alias":   alias,
 			"id":      s.ID,
-			"state":   s.State,
+			"state":   state,
 			"title":   s.Title,
 			"created": t.Local().Format("2006-01-02 15:04:05"),
 			"name":    s.Name,
