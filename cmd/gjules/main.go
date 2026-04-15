@@ -36,8 +36,10 @@ type Config struct {
 	CurrentRepo   string            `json:"currentRepo,omitempty"`   // default repo alias or full source name
 	
 	// Cache
-	SourcesCache []CachedSource `json:"sourcesCache,omitempty"`
-	CacheTime    time.Time      `json:"cacheTime,omitempty"`
+	SourcesCache  []CachedSource  `json:"sourcesCache,omitempty"`
+	SessionsCache []CachedSession `json:"sessionsCache,omitempty"`
+	CacheTime     time.Time       `json:"cacheTime,omitempty"`
+	SessCacheTime time.Time       `json:"sessCacheTime,omitempty"`
 }
 
 type CachedSource struct {
@@ -46,6 +48,14 @@ type CachedSource struct {
 	Owner  string `json:"owner"`
 	Repo   string `json:"repo"`
 	Branch string `json:"branch"`
+}
+
+type CachedSession struct {
+	Name       string `json:"name"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	State      string `json:"state"`
+	CreateTime string `json:"createTime"`
 }
 
 func configPath() string {
@@ -394,23 +404,28 @@ func sessions(args []string) {
 	}
 
 	limit := 20 // Default limit for sessions
+	refresh := false
 	for _, a := range args {
 		if strings.HasPrefix(a, "--limit=") {
 			fmt.Sscanf(a, "--limit=%d", &limit)
+		} else if a == "--refresh" {
+			refresh = true
 		}
+	}
+
+	c := loadConfig()
+	if !refresh && len(c.SessionsCache) > 0 && time.Since(c.SessCacheTime) < 1*time.Hour {
+		printSessions(fields, c.SessionsCache, limit)
+		return
 	}
 
 	key := readKey()
 	pageToken := ""
-	count := 0
+	var allSessions []CachedSession
 	first := true
 
 	for {
-		pageSize := 100
-		if limit > 0 && limit-count < 100 {
-			pageSize = limit - count
-		}
-		path := fmt.Sprintf("/sessions?pageSize=%d", pageSize)
+		path := "/sessions?pageSize=100"
 		if pageToken != "" {
 			path += "&pageToken=" + url.QueryEscape(pageToken)
 		}
@@ -434,47 +449,58 @@ func sessions(args []string) {
 		}
 		json.NewDecoder(resp.Body).Decode(&r)
 
-		if first {
-			fmt.Println(strings.Join(fields, ","))
-			first = false
-		}
-
-		if len(r.Sessions) == 0 && pageToken == "" {
-			fmt.Println("No sessions found.")
-			return
-		}
-
-		c := loadConfig()
-		reverseAlias := make(map[string]string)
-		for alias, id := range c.SessionAlias {
-			reverseAlias[id] = alias
-		}
-
 		for _, s := range r.Sessions {
-			t, _ := time.Parse(time.RFC3339, s.CreateTime)
-			alias := reverseAlias[s.ID]
-			if alias == "" {
-				alias = "-"
-			}
-			values := map[string]string{
-				"alias":   alias,
-				"id":      s.ID,
-				"state":   s.State,
-				"title":   s.Title,
-				"created": t.Local().Format("2006-01-02 15:04:05"),
-				"name":    s.Name,
-			}
-			fmt.Println(csvFields(fields, values))
-			count++
-			if limit > 0 && count >= limit {
-				return
-			}
+			allSessions = append(allSessions, CachedSession{
+				Name:       s.Name,
+				ID:         s.ID,
+				Title:      s.Title,
+				State:      s.State,
+				CreateTime: s.CreateTime,
+			})
 		}
 
 		pageToken = r.NextPageToken
 		if pageToken == "" {
 			break
 		}
+	}
+
+	c.SessionsCache = allSessions
+	c.SessCacheTime = time.Now()
+	saveConfig(c)
+
+	if first {
+		fmt.Println(strings.Join(fields, ","))
+		first = false
+	}
+	printSessions(fields, allSessions, limit)
+}
+
+func printSessions(fields []string, sessions []CachedSession, limit int) {
+	c := loadConfig()
+	reverseAlias := make(map[string]string)
+	for alias, id := range c.SessionAlias {
+		reverseAlias[id] = alias
+	}
+
+	for i, s := range sessions {
+		if limit > 0 && i >= limit {
+			break
+		}
+		t, _ := time.Parse(time.RFC3339, s.CreateTime)
+		alias := reverseAlias[s.ID]
+		if alias == "" {
+			alias = "-"
+		}
+		values := map[string]string{
+			"alias":   alias,
+			"id":      s.ID,
+			"state":   s.State,
+			"title":   s.Title,
+			"created": t.Local().Format("2006-01-02 15:04:05"),
+			"name":    s.Name,
+		}
+		fmt.Println(csvFields(fields, values))
 	}
 }
 
@@ -564,15 +590,18 @@ func csvEscape(s string) string {
 func msgList(args []string) {
 	fields, remaining := parseFields(args)
 	if len(remaining) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjules msg list <sessionAlias> [--fields=...] [--limit=N]")
+		fmt.Fprintln(os.Stderr, "Usage: gjules msg list <sessionAlias> [--fields=...] [--limit=N] [--detail]")
 		os.Exit(1)
 	}
 	sessionAlias := remaining[0]
 
 	limit := 20
+	detail := false
 	for _, a := range args {
 		if strings.HasPrefix(a, "--limit=") {
 			fmt.Sscanf(a, "--limit=%d", &limit)
+		} else if a == "--detail" {
+			detail = true
 		}
 	}
 
@@ -616,7 +645,8 @@ func msgList(args []string) {
 				PlanGenerated *struct {
 					Plan struct {
 						Steps []struct {
-							Title string `json:"title"`
+							Title       string `json:"title"`
+							Description string `json:"description"`
 						} `json:"steps"`
 					} `json:"plan"`
 				} `json:"planGenerated"`
@@ -655,7 +685,11 @@ func msgList(args []string) {
 			} else if a.PlanGenerated != nil {
 				var titles []string
 				for _, s := range a.PlanGenerated.Plan.Steps {
-					titles = append(titles, s.Title)
+					title := s.Title
+					if detail && s.Description != "" {
+						title += ": " + s.Description
+					}
+					titles = append(titles, title)
 				}
 				content = "Plan: " + strings.Join(titles, "; ")
 			} else if a.PlanApproved != nil {
@@ -666,10 +700,13 @@ func msgList(args []string) {
 					content += ": " + a.ProgressUpdated.Description
 				}
 			}
-			// Clean up content for CSV (remove newlines for preview)
-			content = strings.ReplaceAll(content, "\n", " ")
-			if len(content) > 50 {
-				content = content[:47] + "..."
+
+			if !detail {
+				// Clean up content for CSV (remove newlines for preview)
+				content = strings.ReplaceAll(content, "\n", " ")
+				if len(content) > 50 {
+					content = content[:47] + "..."
+				}
 			}
 
 			t, _ := time.Parse(time.RFC3339, a.CreateTime)
@@ -701,6 +738,7 @@ func msgList(args []string) {
 }
 
 func msgSend(sessionAlias, text string) {
+
 	sessionID := resolveSessionID(sessionAlias)
 	key := readKey()
 	body, _ := json.Marshal(map[string]string{"prompt": text})
@@ -1040,14 +1078,14 @@ Usage:
   gjules repo rm <alias>             Remove repo alias
   gjules repo use <alias>            Set default repo
 
-  gjules sessions [--limit=20]       List all sessions
+  gjules sessions [--limit=20] [--refresh] List all sessions
   gjules alias add <name> <id>       Add session alias
   gjules alias list                  List session aliases
   gjules alias rm <name>             Remove session alias
   gjules new "prompt" [--repo=...]   Create session
   gjules new "prompt" --repo=<alias> Create session with specific repo
 
-  gjules msg list <alias> [--limit=20]  List activities
+  gjules msg list <alias> [--limit=20] [--detail] List activities
   gjules msg send <alias> "text"     Send message
   gjules msg approve <alias>         Approve plan
 
