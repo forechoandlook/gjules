@@ -7,7 +7,7 @@
 - **Multi-user Support**: Config & Cache stored per-user in `~/.gjules/users/`.
 - **Smart Notifications**: `msg wait` polls status and notifies you on macOS/Linux/Windows with popups and sound.
 - **Diff Viewer**: `msg list --git` specifically displays code changes (Git Patch).
-- **Session Focus**: `alias use <id>` to set a "current session" and stop typing IDs.
+- **Session Focus**: `alias use <name>` to set a "current session" context and stop typing IDs.
 - **Task Filters**: `sessions --filter=todo` to see only tasks requiring your action.
 
 ## Installation
@@ -16,26 +16,30 @@
 curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/install.sh | bash
 ```
 
-## Usage
+## Quick Reference
 
-```bash
-gjules user add pro "YOUR_API_KEY"
-gjules user switch pro
+### Configuration & Users
+- `gjules user add pro "YOUR_API_KEY"` : Add user.
+- `gjules user current` : Show current active user.
+- `gjules user switch pro` : Switch current user.
 
-# Setup Repo
-gjules sources --limit=10
-gjules repo add myrepo sources/github/owner/repo
-gjules repo use myrepo
+### Repository Management
+- `gjules sources --limit=10` : List all available GitHub repos in your org.
+- `gjules repo add myrepo <source_name>` : Create a local alias for a repo.
+- `gjules repo use myrepo` : Set the default repo for new sessions.
 
-# Workflow
-gjules new "Implement a simple health check endpoint"
-gjules msg wait # Go grab a coffee, it'll ping you!
+### Messaging & Workflow
+- `gjules new "Implement auth module"` : Start a new task.
+- `gjules alias use my-task` : Set current task focus.
+- `gjules msg wait` : Wait for completion with desktop notification.
+- `gjules msg list --git` : View the generated Git Diff.
+- `gjules msg approve` : Approve the plan to apply changes.
+- `gjules sessions --filter=todo` : List all sessions waiting for your response.
 
-gjules msg list --git # Review code changes
-gjules msg approve # Done!
-```
+## Feedback
+- `gjules feedback --type=bug "my feedback"`
+- `gjules feedback --open --type=bug` (Opens GitHub issue)
 
 ## Contributing
-
-See `cmd/gjules/main.go` for the core logic. To run tests:
+To run tests:
 `go test -v cmd/gjules/main.go cmd/gjules/main_test.go`
