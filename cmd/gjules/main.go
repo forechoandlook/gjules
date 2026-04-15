@@ -1006,10 +1006,19 @@ func msgWait(sessionAlias string) {
 }
 
 func notify(msg string) {
-	if runtime.GOOS == "darwin" {
+	// Always beep for all platforms
+	fmt.Print("\a")
+
+	switch runtime.GOOS {
+	case "darwin":
 		exec.Command("osascript", "-e", fmt.Sprintf("display notification %q with title \"Gjules Update\"", msg)).Run()
-		// Also beep
-		fmt.Print("\a")
+	case "linux":
+		// Requires libnotify-bin on most distros
+		exec.Command("notify-send", "Gjules Update", msg).Run()
+	case "windows":
+		// Use PowerShell to show a toast/balloon notification
+		psCommand := fmt.Sprintf("$ws = New-Object -ComObject WScript.Shell; $ws.Popup(%q, 0, \"Gjules Update\", 64)", msg)
+		exec.Command("powershell", "-Command", psCommand).Run()
 	}
 }
 
