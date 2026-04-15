@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -10,13 +9,18 @@ func TestResolveSessionID(t *testing.T) {
 	// Prepare temp config
 	tmpDir, _ := os.MkdirTemp("", "gjules-test")
 	defer os.RemoveAll(tmpDir)
-	originalPath := overriddenConfigPath
-	overriddenConfigPath = filepath.Join(tmpDir, "config")
-	defer func() { overriddenConfigPath = originalPath }()
+	
+	originalBase := overriddenBaseDir
+	overriddenBaseDir = tmpDir
+	defer func() { overriddenBaseDir = originalBase }()
 
 	c := loadConfig()
+	c.CurrentUser = "test-user"
 	c.SessionAlias["my-alias"] = "12345"
 	saveConfig(c)
+
+	// Re-load to ensure user data is merged
+	c = loadConfig()
 
 	tests := []struct {
 		input    string
@@ -38,13 +42,17 @@ func TestResolveSessionID(t *testing.T) {
 func TestResolveSource(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "gjules-test")
 	defer os.RemoveAll(tmpDir)
-	originalPath := overriddenConfigPath
-	overriddenConfigPath = filepath.Join(tmpDir, "config")
-	defer func() { overriddenConfigPath = originalPath }()
+	originalBase := overriddenBaseDir
+	overriddenBaseDir = tmpDir
+	defer func() { overriddenBaseDir = originalBase }()
 
 	c := loadConfig()
+	c.CurrentUser = "test-user"
 	c.RepoAlias["gssh"] = "sources/github/forechoandlook/gssh"
 	saveConfig(c)
+
+	// Re-load
+	c = loadConfig()
 
 	tests := []struct {
 		input    string
@@ -120,18 +128,19 @@ func TestParseFields(t *testing.T) {
 func TestConfigPersistence(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "gjules-test-config")
 	defer os.RemoveAll(tmpDir)
-	originalPath := overriddenConfigPath
-	overriddenConfigPath = filepath.Join(tmpDir, "config.json")
-	defer func() { overriddenConfigPath = originalPath }()
+	originalBase := overriddenBaseDir
+	overriddenBaseDir = tmpDir
+	defer func() { overriddenBaseDir = originalBase }()
 
 	c := loadConfig()
 	c.CurrentUser = "test-user"
 	c.Users["test-user"] = "key-123"
+	c.CurrentRepo = "repo-abc"
 	saveConfig(c)
 
 	// Reload and verify
 	c2 := loadConfig()
-	if c2.CurrentUser != "test-user" || c2.Users["test-user"] != "key-123" {
+	if c2.CurrentUser != "test-user" || c2.Users["test-user"] != "key-123" || c2.CurrentRepo != "repo-abc" {
 		t.Errorf("Config failed to persist. Got: %+v", c2)
 	}
 }
