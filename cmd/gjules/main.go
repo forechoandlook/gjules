@@ -34,6 +34,7 @@ type Config struct {
 	SessionAlias  map[string]string `json:"sessionAlias,omitempty"`  // alias -> full ID
 	RepoAlias     map[string]string `json:"repoAlias,omitempty"`     // alias -> source name (e.g. sources/github-org-repo)
 	CurrentRepo   string            `json:"currentRepo,omitempty"`   // default repo alias or full source name
+	CurrentSession string           `json:"currentSession,omitempty"` // default session alias or ID
 	
 	// Cache
 	SourcesCache  []CachedSource  `json:"sourcesCache,omitempty"`
@@ -110,10 +111,14 @@ func readKey() string {
 
 func resolveSessionID(aliasOrID string) string {
 	c := loadConfig()
+	id := aliasOrID
 	if fullID, ok := c.SessionAlias[aliasOrID]; ok {
-		return fullID
+		id = fullID
 	}
-	return aliasOrID
+	if id != "" && !strings.HasPrefix(id, "sessions/") {
+		id = "sessions/" + id
+	}
+	return id
 }
 
 func resolveSource(aliasOrSource string) string {
@@ -594,16 +599,34 @@ func csvEscape(s string) string {
 }
 
 func msgList(args []string) {
-	fields, remaining := parseFields(args)
-	if len(remaining) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjules msg list <sessionAlias> [--fields=...] [--limit=N] [--detail]")
+	// Separate flags and positional arguments
+	var flags []string
+	var positional []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			flags = append(flags, a)
+		} else {
+			positional = append(positional, a)
+		}
+	}
+
+	fields, _ := parseFields(flags)
+	
+	c := loadConfig()
+	sessionID := ""
+	if len(positional) > 0 {
+		sessionID = resolveSessionID(positional[0])
+	} else if c.CurrentSession != "" {
+		sessionID = c.CurrentSession // Already resolved
+	} else {
+		fmt.Fprintln(os.Stderr, "Usage: gjules msg list [sessionAlias] [--fields=...] [--limit=N] [--detail]")
+		fmt.Fprintln(os.Stderr, "No current session set. Use 'gjules alias use <alias>' first.")
 		os.Exit(1)
 	}
-	sessionAlias := remaining[0]
 
 	limit := 20
 	detail := false
-	for _, a := range args {
+	for _, a := range flags {
 		if strings.HasPrefix(a, "--limit=") {
 			fmt.Sscanf(a, "--limit=%d", &limit)
 		} else if a == "--detail" {
@@ -611,7 +634,6 @@ func msgList(args []string) {
 		}
 	}
 
-	sessionID := resolveSessionID(sessionAlias)
 	key := readKey()
 	pageToken := ""
 	count := 0
@@ -622,7 +644,7 @@ func msgList(args []string) {
 		if limit > 0 && limit-count < 100 {
 			pageSize = limit - count
 		}
-		path := fmt.Sprintf("/sessions/%s/activities?pageSize=%d", sessionID, pageSize)
+		path := fmt.Sprintf("/%s/activities?pageSize=%d", sessionID, pageSize)
 		if pageToken != "" {
 			path += "&pageToken=" + url.QueryEscape(pageToken)
 		}
@@ -664,8 +686,12 @@ func msgList(args []string) {
 					Description string `json:"description"`
 				} `json:"progressUpdated"`
 				Artifacts []struct {
-					ChangeSet interface{} `json:"changeSet"`
-					Media     interface{} `json:"media"`
+					ChangeSet *struct {
+						GitPatch struct {
+							UnidiffPatch string `json:"unidiffPatch"`
+						} `json:"gitPatch"`
+					} `json:"changeSet"`
+					Media interface{} `json:"media"`
 				} `json:"artifacts"`
 			} `json:"activities"`
 			NextPageToken string `json:"nextPageToken"`
@@ -697,11 +723,15 @@ func msgList(args []string) {
 				for _, s := range a.PlanGenerated.Plan.Steps {
 					title := s.Title
 					if detail && s.Description != "" {
-						title += ": " + s.Description
+						title += "\n  - Description: " + s.Description
 					}
 					titles = append(titles, title)
 				}
-				content = "Plan: " + strings.Join(titles, "; ")
+				sep := "; "
+				if detail {
+					sep = "\n"
+				}
+				content = "Plan:\n" + strings.Join(titles, sep)
 			} else if a.PlanApproved != nil {
 				content = "Plan Approved: " + a.PlanApproved.PlanID
 			} else if a.ProgressUpdated != nil {
@@ -712,15 +742,19 @@ func msgList(args []string) {
 			}
 
 			if content == "" && len(a.Artifacts) > 0 {
-				var types []string
+				var summaries []string
 				for _, art := range a.Artifacts {
 					if art.ChangeSet != nil {
-						types = append(types, "ChangeSet")
+						if detail {
+							summaries = append(summaries, "Code Change:\n"+art.ChangeSet.GitPatch.UnidiffPatch)
+						} else {
+							summaries = append(summaries, "ChangeSet")
+						}
 					} else if art.Media != nil {
-						types = append(types, "Media")
+						summaries = append(summaries, "Media")
 					}
 				}
-				content = "[Artifacts: " + strings.Join(types, ", ") + "]"
+				content = "[Artifacts: " + strings.Join(summaries, "\n") + "]"
 			}
 
 			if content == "" && a.Description != "" {
@@ -764,29 +798,52 @@ func msgList(args []string) {
 }
 
 func msgSend(sessionAlias, text string) {
+	c := loadConfig()
+	sessionID := ""
+	if sessionAlias != "" {
+		sessionID = resolveSessionID(sessionAlias)
+	} else {
+		sessionID = c.CurrentSession // Already resolved
+	}
+	
+	if sessionID == "" {
+		fmt.Fprintln(os.Stderr, "Error: No session specified and no current session set. Use 'gjules alias use <alias>' first.")
+		os.Exit(1)
+	}
 
-	sessionID := resolveSessionID(sessionAlias)
 	key := readKey()
 	body, _ := json.Marshal(map[string]string{"prompt": text})
-	resp, err := do(key, "POST", fmt.Sprintf("/sessions/%s:sendMessage", sessionID), strings.NewReader(string(body)))
+	resp, err := do(key, "POST", fmt.Sprintf("/%s:sendMessage", sessionID), strings.NewReader(string(body)))
 	if err != nil {
 		die(err)
 	}
 	defer resp.Body.Close()
 	checkResp(resp)
-	fmt.Println("Message sent.")
+	fmt.Printf("Message sent to session %s.\n", sessionID)
 }
 
 func msgApprove(sessionAlias string) {
-	sessionID := resolveSessionID(sessionAlias)
+	c := loadConfig()
+	sessionID := ""
+	if sessionAlias != "" {
+		sessionID = resolveSessionID(sessionAlias)
+	} else {
+		sessionID = c.CurrentSession // Already resolved
+	}
+
+	if sessionID == "" {
+		fmt.Fprintln(os.Stderr, "Error: No session specified and no current session set. Use 'gjules alias use <alias>' first.")
+		os.Exit(1)
+	}
+
 	key := readKey()
-	resp, err := do(key, "POST", fmt.Sprintf("/sessions/%s:approvePlan", sessionID), strings.NewReader("{}"))
+	resp, err := do(key, "POST", fmt.Sprintf("/%s:approvePlan", sessionID), strings.NewReader("{}"))
 	if err != nil {
 		die(err)
 	}
 	defer resp.Body.Close()
 	checkResp(resp)
-	fmt.Println("Plan approved.")
+	fmt.Printf("Plan approved for session %s.\n", sessionID)
 }
 
 // --- Helpers ---
@@ -1108,12 +1165,13 @@ Usage:
   gjules alias add <name> <id>       Add session alias
   gjules alias list                  List session aliases
   gjules alias rm <name>             Remove session alias
+  gjules alias use <name>            Set current session
   gjules new "prompt" [--repo=...]   Create session
   gjules new "prompt" --repo=<alias> Create session with specific repo
 
-  gjules msg list <alias> [--limit=20] [--detail] List activities
-  gjules msg send <alias> "text"     Send message
-  gjules msg approve <alias>         Approve plan
+  gjules msg list [alias] [--limit=20] [--detail] List activities
+  gjules msg send [alias] "text"     Send message
+  gjules msg approve [alias]         Approve plan
 
   gjules version                     Show version
   gjules update                      Self-update to latest release
@@ -1244,9 +1302,17 @@ func handleRepo(args []string) {
 	}
 }
 
+func sessionUse(alias string) {
+	c := loadConfig()
+	sessionID := resolveSessionID(alias)
+	c.CurrentSession = sessionID
+	saveConfig(c)
+	fmt.Printf("Current session set to %s\n", sessionID)
+}
+
 func handleAlias(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjules alias <add|list|rm>")
+		fmt.Fprintln(os.Stderr, "Usage: gjules alias <add|list|rm|use>")
 		os.Exit(1)
 	}
 	switch args[0] {
@@ -1264,6 +1330,12 @@ func handleAlias(args []string) {
 			os.Exit(1)
 		}
 		sessionAliasRm(args[1])
+	case "use":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: gjules alias use <name>")
+			os.Exit(1)
+		}
+		sessionUse(args[1])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown alias command: %s\n", args[0])
 		os.Exit(1)
@@ -1306,17 +1378,45 @@ func handleMsg(args []string) {
 	case "list":
 		msgList(args[1:])
 	case "send":
-		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: gjules msg send <sessionAlias> \"text\"")
+		// Can be: msg send "text" (uses current session)
+		// Or:     msg send <alias> "text"
+		c := loadConfig()
+		
+		var flags []string
+		var positional []string
+		for _, a := range args[1:] {
+			if strings.HasPrefix(a, "-") {
+				flags = append(flags, a)
+			} else {
+				positional = append(positional, a)
+			}
+		}
+
+		target := ""
+		text := ""
+		if len(positional) >= 2 {
+			target = positional[0]
+			text = strings.Join(positional[1:], " ")
+		} else if len(positional) == 1 {
+			target = c.CurrentSession
+			text = positional[0]
+		} else {
+			fmt.Fprintln(os.Stderr, "Usage: gjules msg send [sessionAlias] \"text\"")
 			os.Exit(1)
 		}
-		msgSend(args[1], strings.Join(args[2:], " "))
+		msgSend(target, text)
 	case "approve":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: gjules msg approve <sessionAlias>")
-			os.Exit(1)
+		var positional []string
+		for _, a := range args[1:] {
+			if !strings.HasPrefix(a, "-") {
+				positional = append(positional, a)
+			}
 		}
-		msgApprove(args[1])
+		target := ""
+		if len(positional) >= 1 {
+			target = positional[0]
+		}
+		msgApprove(target)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown msg command: %s\n", args[0])
 		os.Exit(1)
