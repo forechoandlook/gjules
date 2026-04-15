@@ -504,17 +504,20 @@ func sessions(args []string) {
 
 	limit := 20 // Default limit for sessions
 	refresh := false
+	filter := ""
 	for _, a := range args {
 		if strings.HasPrefix(a, "--limit=") {
 			fmt.Sscanf(a, "--limit=%d", &limit)
 		} else if a == "--refresh" {
 			refresh = true
+		} else if strings.HasPrefix(a, "--filter=") {
+			filter = strings.TrimPrefix(a, "--filter=")
 		}
 	}
 
 	c := loadConfig()
 	if !refresh && len(c.SessionsCache) > 0 && time.Since(c.SessCacheTime) < 1*time.Hour {
-		printSessions(fields, c.SessionsCache, limit)
+		printSessions(fields, c.SessionsCache, limit, filter)
 		return
 	}
 
@@ -572,35 +575,56 @@ func sessions(args []string) {
 		fmt.Println(strings.Join(fields, ","))
 		first = false
 	}
-	printSessions(fields, allSessions, limit)
+	printSessions(fields, allSessions, limit, filter)
 }
 
-func printSessions(fields []string, sessions []CachedSession, limit int) {
+func printSessions(fields []string, sessions []CachedSession, limit int, filter string) {
 	c := loadConfig()
 	reverseAlias := make(map[string]string)
 	for alias, id := range c.SessionAlias {
 		reverseAlias[id] = alias
 	}
 
-	for i, s := range sessions {
-		if limit > 0 && i >= limit {
+	count := 0
+	for _, s := range sessions {
+		state := s.State
+		isTodo := strings.HasPrefix(state, "AWAITING_")
+		isActive := state != "COMPLETED" && state != "CANCELLED"
+		
+		match := true
+		switch filter {
+		case "todo":
+			match = isTodo
+		case "active":
+			match = isActive
+		case "done":
+			match = state == "COMPLETED"
+		}
+		
+		if !match {
+			continue
+		}
+
+		if limit > 0 && count >= limit {
 			break
 		}
+		count++
+
 		t, _ := time.Parse(time.RFC3339, s.CreateTime)
 		alias := reverseAlias[s.ID]
 		if alias == "" {
 			alias = "-"
 		}
 		
-		state := s.State
-		if strings.HasPrefix(state, "AWAITING_") {
-			state = "[!] " + state
+		displayState := state
+		if isTodo {
+			displayState = "[!] " + state
 		}
 
 		values := map[string]string{
 			"alias":   alias,
 			"id":      s.ID,
-			"state":   state,
+			"state":   displayState,
 			"title":   s.Title,
 			"created": t.Local().Format("2006-01-02 15:04:05"),
 			"name":    s.Name,
@@ -1256,7 +1280,7 @@ Usage:
   gjules repo rm <alias>             Remove repo alias
   gjules repo use <alias>            Set default repo
 
-  gjules sessions [--limit=20] [--refresh] List all sessions
+  gjules sessions [--limit=20] [--refresh] [--filter=todo|active|done] List sessions
   gjules alias add <name> <id>       Add session alias
   gjules alias list                  List session aliases
   gjules alias rm <name>             Remove session alias
