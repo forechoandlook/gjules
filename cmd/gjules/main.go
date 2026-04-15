@@ -657,6 +657,10 @@ func msgList(args []string) {
 					Title       string `json:"title"`
 					Description string `json:"description"`
 				} `json:"progressUpdated"`
+				Artifacts []struct {
+					ChangeSet interface{} `json:"changeSet"`
+					Media     interface{} `json:"media"`
+				} `json:"artifacts"`
 			} `json:"activities"`
 			NextPageToken string `json:"nextPageToken"`
 		}
@@ -665,7 +669,7 @@ func msgList(args []string) {
 		if first {
 			headerFields := fields
 			if len(headerFields) == 0 {
-				headerFields = []string{"id", "originator", "description", "content", "created"}
+				headerFields = []string{"id", "originator", "content", "created"}
 			}
 			fmt.Println(strings.Join(headerFields, ","))
 			first = false
@@ -701,6 +705,22 @@ func msgList(args []string) {
 				}
 			}
 
+			if content == "" && len(a.Artifacts) > 0 {
+				var types []string
+				for _, art := range a.Artifacts {
+					if art.ChangeSet != nil {
+						types = append(types, "ChangeSet")
+					} else if art.Media != nil {
+						types = append(types, "Media")
+					}
+				}
+				content = "[Artifacts: " + strings.Join(types, ", ") + "]"
+			}
+
+			if content == "" && a.Description != "" {
+				content = a.Description
+			}
+
 			if !detail {
 				// Clean up content for CSV (remove newlines for preview)
 				content = strings.ReplaceAll(content, "\n", " ")
@@ -721,7 +741,7 @@ func msgList(args []string) {
 			// Use the requested order of fields
 			selectedFields := fields
 			if len(selectedFields) == 0 {
-				selectedFields = []string{"id", "originator", "description", "content", "created"}
+				selectedFields = []string{"id", "originator", "content", "created"}
 			}
 			fmt.Println(csvFields(selectedFields, values))
 			count++
