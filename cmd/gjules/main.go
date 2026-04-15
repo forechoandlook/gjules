@@ -734,11 +734,14 @@ func msgList(args []string) {
 
 	limit := 20
 	detail := false
+	showGit := false
 	for _, a := range flags {
 		if strings.HasPrefix(a, "--limit=") {
 			fmt.Sscanf(a, "--limit=%d", &limit)
 		} else if a == "--detail" {
 			detail = true
+		} else if a == "--git" {
+			showGit = true
 		}
 	}
 
@@ -853,7 +856,7 @@ func msgList(args []string) {
 				var summaries []string
 				for _, art := range a.Artifacts {
 					if art.ChangeSet != nil {
-						if detail {
+						if showGit {
 							summaries = append(summaries, "Code Change:\n"+art.ChangeSet.GitPatch.UnidiffPatch)
 						} else {
 							summaries = append(summaries, "ChangeSet")
@@ -952,6 +955,62 @@ func msgApprove(sessionAlias string) {
 	defer resp.Body.Close()
 	checkResp(resp)
 	fmt.Printf("Plan approved for session %s.\n", sessionID)
+}
+
+func msgWait(sessionAlias string) {
+	c := loadConfig()
+	sessionID := ""
+	if sessionAlias != "" {
+		sessionID = resolveSessionID(sessionAlias)
+	} else {
+		sessionID = c.CurrentSession // Already resolved
+	}
+
+	if sessionID == "" {
+		fmt.Fprintln(os.Stderr, "Error: No session specified and no current session set.")
+		os.Exit(1)
+	}
+
+	key := readKey()
+	fmt.Printf("Waiting for session %s...\n", sessionID)
+
+	for {
+		resp, err := do(key, "GET", "/"+sessionID)
+		if err != nil {
+			die(err)
+		}
+		defer resp.Body.Close()
+		checkResp(resp)
+
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		var s struct {
+			ID    string `json:"id"`
+			State string `json:"state"`
+		}
+		json.Unmarshal(bodyBytes, &s)
+
+		state := s.State
+		isTodo := strings.HasPrefix(state, "AWAITING_")
+		isDone := state == "COMPLETED" || state == "CANCELLED"
+
+		if isTodo || isDone {
+			msg := fmt.Sprintf("Session %s is now %s", sessionID, state)
+			fmt.Printf("\n%s\n", msg)
+			notify(msg)
+			return
+		}
+
+		fmt.Print(".")
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func notify(msg string) {
+	if runtime.GOOS == "darwin" {
+		exec.Command("osascript", "-e", fmt.Sprintf("display notification %q with title \"Gjules Update\"", msg)).Run()
+		// Also beep
+		fmt.Print("\a")
+	}
 }
 
 // --- Helpers ---
@@ -1288,9 +1347,10 @@ Usage:
   gjules new "prompt" [--repo=...]   Create session
   gjules new "prompt" --repo=<alias> Create session with specific repo
 
-  gjules msg list [alias] [--limit=20] [--detail] List activities
+  gjules msg list [alias] [--limit=20] [--detail] [--git] List activities
   gjules msg send [alias] "text"     Send message
   gjules msg approve [alias]         Approve plan
+  gjules msg wait [alias]            Wait for session to be ready
 
   gjules version                     Show version
   gjules update                      Self-update to latest release
@@ -1490,12 +1550,19 @@ func handleNew(args []string) {
 
 func handleMsg(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjules msg <list|send|approve>")
+		fmt.Fprintln(os.Stderr, "Usage: gjules msg <list|send|approve|wait>")
 		os.Exit(1)
 	}
 	switch args[0] {
 	case "list":
 		msgList(args[1:])
+	case "wait":
+		_, positional := splitArgs(args[1:])
+		target := ""
+		if len(positional) >= 1 {
+			target = positional[0]
+		}
+		msgWait(target)
 	case "send":
 		// Can be: msg send "text" (uses current session)
 		// Or:     msg send <alias> "text"
