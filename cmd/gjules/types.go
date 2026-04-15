@@ -1,0 +1,36 @@
+package main
+
+import "time"
+
+// Config represents the global and per-user configuration.
+type Config struct {
+	// Global fields
+	Users       map[string]string `json:"users,omitempty"`
+	CurrentUser string            `json:"currentUser,omitempty"`
+
+	// Per-user fields (stored in user directory)
+	SessionAlias   map[string]string `json:"sessionAlias,omitempty"`
+	RepoAlias      map[string]string `json:"repoAlias,omitempty"`
+	CurrentRepo    string            `json:"currentRepo,omitempty"`
+	CurrentSession string            `json:"currentSession,omitempty"`
+	SourcesCache   []CachedSource    `json:"sourcesCache,omitempty"`
+	SessionsCache  []CachedSession   `json:"sessionsCache,omitempty"`
+	CacheTime      time.Time         `json:"cacheTime,omitempty"`
+	SessCacheTime  time.Time         `json:"sessCacheTime,omitempty"`
+}
+
+type CachedSource struct {
+	Name   string `json:"name"`
+	ID     string `json:"id"`
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Branch string `json:"branch"`
+}
+
+type CachedSession struct {
+	Name       string `json:"name"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	State      string `json:"state"`
+	CreateTime string `json:"createTime"`
+}
