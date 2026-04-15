@@ -59,7 +59,12 @@ type CachedSession struct {
 	CreateTime string `json:"createTime"`
 }
 
+var overriddenConfigPath string
+
 func configPath() string {
+	if overriddenConfigPath != "" {
+		return overriddenConfigPath
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, configFile)
 }
@@ -599,17 +604,7 @@ func csvEscape(s string) string {
 }
 
 func msgList(args []string) {
-	// Separate flags and positional arguments
-	var flags []string
-	var positional []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			flags = append(flags, a)
-		} else {
-			positional = append(positional, a)
-		}
-	}
-
+	flags, positional := splitArgs(args)
 	fields, _ := parseFields(flags)
 	
 	c := loadConfig()
@@ -858,6 +853,17 @@ func parseFields(args []string) (fields []string, remaining []string) {
 			}
 		} else {
 			remaining = append(remaining, a)
+		}
+	}
+	return
+}
+
+func splitArgs(args []string) (flags []string, positional []string) {
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			flags = append(flags, a)
+		} else {
+			positional = append(positional, a)
 		}
 	}
 	return
@@ -1382,15 +1388,7 @@ func handleMsg(args []string) {
 		// Or:     msg send <alias> "text"
 		c := loadConfig()
 		
-		var flags []string
-		var positional []string
-		for _, a := range args[1:] {
-			if strings.HasPrefix(a, "-") {
-				flags = append(flags, a)
-			} else {
-				positional = append(positional, a)
-			}
-		}
+		_, positional := splitArgs(args[1:])
 
 		target := ""
 		text := ""
@@ -1406,12 +1404,7 @@ func handleMsg(args []string) {
 		}
 		msgSend(target, text)
 	case "approve":
-		var positional []string
-		for _, a := range args[1:] {
-			if !strings.HasPrefix(a, "-") {
-				positional = append(positional, a)
-			}
-		}
+		_, positional := splitArgs(args[1:])
 		target := ""
 		if len(positional) >= 1 {
 			target = positional[0]
