@@ -776,11 +776,11 @@ func msgList(args []string) {
 				Originator    string `json:"originator"`
 				CreateTime    string `json:"createTime"`
 				AgentMessaged *struct {
-					Text string `json:"text"`
-				} `json:"agentMessage"`
+					AgentMessage string `json:"agentMessage"`
+				} `json:"agentMessaged"`
 				UserMessaged *struct {
-					Prompt string `json:"prompt"`
-				} `json:"userMessage"`
+					UserMessage string `json:"userMessage"`
+				} `json:"userMessaged"`
 				PlanGenerated *struct {
 					Plan struct {
 						Steps []struct {
@@ -826,9 +826,9 @@ func msgList(args []string) {
 		for _, a := range r.Activities {
 			content := ""
 			if a.AgentMessaged != nil {
-				content = a.AgentMessaged.Text
+				content = a.AgentMessaged.AgentMessage
 			} else if a.UserMessaged != nil {
-				content = a.UserMessaged.Prompt
+				content = a.UserMessaged.UserMessage
 			} else if a.PlanGenerated != nil {
 				var titles []string
 				for _, s := range a.PlanGenerated.Plan.Steps {
