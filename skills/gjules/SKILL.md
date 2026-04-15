@@ -11,7 +11,7 @@ uninstall: `curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/ma
 # Add your API key
 gjules user add main "your-api-key-here"
 # Set default repo
-gjules sources # list available repos
+gjules sources --limit=5 # list available repos
 gjules repo add myrepo sources/github-... # create alias
 gjules repo use myrepo # set default
 gjules new "Add unit tests for the auth module" # Create a session
@@ -19,7 +19,7 @@ gjules new "prompt" --repo=<alias> #Create session with specific repo
 gjules sources [--fields=...]      #List all sources (repos)
 # Monitor progress
 gjules sessions # list sessions
-gjules msg list <alias> # view activities
+gjules msg list <alias>  --fields="content,content" # view activities
 gjules msg send <alias> "Also add integration tests"
 gjules msg approve <alias> # approve plan
 gjules feedback --type=bug "msg" # Append to local JSONL (~/.gjules/feedback.jsonl)
