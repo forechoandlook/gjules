@@ -1,6 +1,6 @@
 module gjules
 
-go 1.25.7
+go 1.25
 
 require golang.org/x/term v0.42.0
 
