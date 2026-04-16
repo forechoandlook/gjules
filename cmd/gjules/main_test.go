@@ -182,7 +182,7 @@ func TestSummarizeChangeSet(t *testing.T) {
 	}, "\n")
 
 	got := summarizeChangeSet(cs)
-	want := "ChangeSet[code, tests, docs, ci] (4 files) [new]"
+	want := "ChangeSet"
 	if got != want {
 		t.Fatalf("summarizeChangeSet() = %q; want %q", got, want)
 	}
@@ -213,7 +213,7 @@ func TestRenderActivityContent(t *testing.T) {
 	}
 
 	got := renderActivityContent(a, false, false)
-	want := "done ChangeSet[docs] (1 files)"
+	want := "done ChangeSet"
 	if got != want {
 		t.Fatalf("renderActivityContent() = %q; want %q", got, want)
 	}

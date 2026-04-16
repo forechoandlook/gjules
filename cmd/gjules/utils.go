@@ -32,6 +32,15 @@ func splitArgs(args []string) (flags []string, positional []string) {
 	return
 }
 
+func hasFlag(flags []string, name string) bool {
+	for _, f := range flags {
+		if f == "--"+name {
+			return true
+		}
+	}
+	return false
+}
+
 func selectFields(allFields []string, values map[string]string) []string {
 	if len(allFields) == 0 {
 		// Return all values in order
@@ -50,7 +59,7 @@ func selectFields(allFields []string, values map[string]string) []string {
 
 func orderedKeys(m map[string]string) []string {
 	// Predefined order for common fields
-	order := []string{"alias", "id", "state", "title", "created", "name", "originator", "description", "content", "owner", "repo", "branch"}
+	order := []string{"alias", "id", "state", "title", "source", "created", "name", "originator", "description", "content", "owner", "repo", "branch"}
 	seen := make(map[string]bool)
 	var result []string
 	for _, k := range order {

@@ -41,7 +41,7 @@ func sources(args []string) {
 
 	c := loadConfig()
 	if !refresh && len(c.SourcesCache) > 0 && time.Since(c.CacheTime) < 24*time.Hour {
-		printSources(fields, c.SourcesCache, limit)
+		printSources(fields, c.SourcesCache, limit, c.CacheTime)
 		return
 	}
 
@@ -109,10 +109,10 @@ func sources(args []string) {
 	saveConfig(c)
 
 	fmt.Println(strings.Join(fields, ","))
-	printSources(fields, allSources, limit)
+	printSources(fields, allSources, limit, c.CacheTime)
 }
 
-func printSources(fields []string, sources []CachedSource, limit int) {
+func printSources(fields []string, sources []CachedSource, limit int, dataTime time.Time) {
 	c := loadConfig()
 	reverseAlias := make(map[string]string)
 	for alias, src := range c.RepoAlias {
@@ -137,6 +137,7 @@ func printSources(fields []string, sources []CachedSource, limit int) {
 		}
 		fmt.Println(csvFields(fields, values))
 	}
+	fmt.Printf("data_time: %s\n", dataTime.Local().Format("2006-01-02 15:04:05"))
 }
 
 func handleRepo(args []string) {
@@ -223,12 +224,17 @@ func sourceUse(alias string) {
 
 func sourceShow(target string) {
 	src := resolveSource(target)
-	if !strings.HasPrefix(src, "sources/") { src = "sources/" + src }
+	if !strings.HasPrefix(src, "sources/") {
+		src = "sources/" + src
+	}
 	key := readKey()
 	resp, result, err := doJSON(key, "GET", "/"+src, nil)
-	if err != nil { die(err) }
+	if err != nil {
+		die(err)
+	}
 	defer resp.Body.Close()
 	checkResp(resp)
 	b, _ := json.MarshalIndent(result, "", "  ")
 	fmt.Println(string(b))
+	fmt.Printf("data_time: %s\n", time.Now().Local().Format("2006-01-02 15:04:05"))
 }

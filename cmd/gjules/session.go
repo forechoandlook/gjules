@@ -16,11 +16,12 @@ func sessions(args []string) {
 	if len(args) > 0 {
 		switch args[0] {
 		case "show":
-			if len(args) < 2 {
-				fmt.Fprintln(os.Stderr, "Usage: gjules sessions show <id|alias>")
+			flags, positional := splitArgs(args[1:])
+			if len(positional) < 1 {
+				fmt.Fprintln(os.Stderr, "Usage: gjules sessions show <id|alias> [--detail]")
 				os.Exit(1)
 			}
-			sessionShow(args[1])
+			sessionShow(positional[0], hasFlag(flags, "detail"))
 			return
 		case "rm":
 			if len(args) < 2 {
@@ -37,7 +38,7 @@ func sessions(args []string) {
 	flags, _ := splitArgs(args)
 	fields, _ := parseFields(flags)
 	if len(fields) == 0 {
-		fields = []string{"alias", "id", "state", "title", "created", "name"}
+		fields = []string{"alias", "id", "state", "title", "source", "created"}
 	}
 
 	limit := 20
@@ -55,7 +56,7 @@ func sessions(args []string) {
 
 	c := loadConfig()
 	if !refresh && len(c.SessionsCache) > 0 && time.Since(c.SessCacheTime) < 5*time.Minute {
-		printSessions(fields, c.SessionsCache, limit, filter)
+		printSessions(fields, c.SessionsCache, limit, filter, c.SessCacheTime)
 		return
 	}
 
@@ -104,6 +105,7 @@ func sessions(args []string) {
 			break
 		}
 	}
+	enrichSessionsWithSource(allSessions, key)
 
 	c.SessionsCache = allSessions
 	c.SessCacheTime = time.Now()
@@ -113,10 +115,10 @@ func sessions(args []string) {
 		fmt.Println(strings.Join(fields, ","))
 		first = false
 	}
-	printSessions(fields, allSessions, limit, filter)
+	printSessions(fields, allSessions, limit, filter, c.SessCacheTime)
 }
 
-func printSessions(fields []string, sessions []CachedSession, limit int, filter string) {
+func printSessions(fields []string, sessions []CachedSession, limit int, filter string, dataTime time.Time) {
 	c := loadConfig()
 	reverseAlias := make(map[string]string)
 	for alias, id := range c.SessionAlias {
@@ -164,14 +166,16 @@ func printSessions(fields []string, sessions []CachedSession, limit int, filter 
 			"id":      s.ID,
 			"state":   displayState,
 			"title":   s.Title,
+			"source":  s.Source,
 			"created": t.Local().Format("2006-01-02 15:04:05"),
 			"name":    s.Name,
 		}
 		fmt.Println(csvFields(fields, values))
 	}
+	fmt.Printf("data_time: %s\n", dataTime.Local().Format("2006-01-02 15:04:05"))
 }
 
-func sessionShow(target string) {
+func sessionShow(target string, detail bool) {
 	sessionID := resolveSessionID(target)
 	key := readKey()
 	resp, result, err := doJSON(key, "GET", "/sessions/"+sessionID, nil)
@@ -180,8 +184,58 @@ func sessionShow(target string) {
 	}
 	defer resp.Body.Close()
 	checkResp(resp)
+	printSessionSummary(result)
+	if !detail {
+		fmt.Printf("data_time: %s\n", time.Now().Local().Format("2006-01-02 15:04:05"))
+		return
+	}
 	b, _ := json.MarshalIndent(result, "", "  ")
 	fmt.Println(string(b))
+	fmt.Printf("data_time: %s\n", time.Now().Local().Format("2006-01-02 15:04:05"))
+}
+
+func printSessionSummary(result map[string]interface{}) {
+	state, _ := result["state"].(string)
+	fmt.Printf("state: %s\n", state)
+}
+
+func enrichSessionsWithSource(sessions []CachedSession, key string) {
+	for i := range sessions {
+		source, err := fetchSessionSource(key, sessions[i].ID)
+		if err == nil {
+			sessions[i].Source = source
+		}
+	}
+}
+
+func fetchSessionSource(key, sessionID string) (string, error) {
+	resp, result, err := doJSON(key, "GET", "/sessions/"+sessionID, nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("status %s", resp.Status)
+	}
+	if sourceContext, ok := result["sourceContext"].(map[string]interface{}); ok {
+		if source, ok := sourceContext["source"].(string); ok && strings.TrimSpace(source) != "" {
+			return source, nil
+		}
+	}
+	if outputs, ok := result["outputs"].([]interface{}); ok {
+		for _, o := range outputs {
+			outMap, ok := o.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if cs, ok := outMap["changeSet"].(map[string]interface{}); ok {
+				if source, ok := cs["source"].(string); ok && strings.TrimSpace(source) != "" {
+					return source, nil
+				}
+			}
+		}
+	}
+	return "-", nil
 }
 
 func sessionRm(target string) {

@@ -9,7 +9,7 @@
 - **Diff Viewer**: `msg list --git` displays code changes (Git Patch).
 - **Session Focus**: `alias use <name>` to set a "current session" context.
 - **Code Application**: `sessions apply <id>` checks out a local session branch from the cloud patch base commit, then applies the patch.
-- **Task Filters**: `sessions --filter=todo` to see tasks requiring action.
+- **Task Filters**: `sessions --filter=todo` to see tasks requiring action, with a coarse `next_action` hint.
 
 ## Installation
 
@@ -34,6 +34,7 @@ gjules update
 ### Messaging & Workflow
 - `gjules new "Implement auth" --auto-pr --branch=dev` : Start a new task with PR automation and custom base branch.
 - `gjules sessions show <id>` : View session details (PR URL, Branch name, status).
+- `gjules sessions show <id>` now prints a short summary before raw JSON, including inferred `next_action`.
 - `gjules sessions apply <id>` : Create or reuse a local branch named after the session id at the cloud patch base commit, then apply the latest cloud patch.
 - `gjules sessions apply <id> --dir=/path/to/repo` : Do the same in a specific local git repo.
 - `gjules msg list --type=code` : View only activity history related to code changes, with grouped `ChangeSet` summaries by default.

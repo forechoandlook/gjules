@@ -33,6 +33,7 @@ type CachedSession struct {
 	Title      string          `json:"title"`
 	State      string          `json:"state"`
 	CreateTime string          `json:"createTime"`
+	Source     string          `json:"source,omitempty"`
 	Url        string          `json:"url,omitempty"`
 	Outputs    []SessionOutput `json:"outputs,omitempty"`
 }

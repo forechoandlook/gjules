@@ -36,7 +36,7 @@ gjules msg approve                      # Approve plan
 ## Command Reference
 
 ### Session & Alias Management
-- `gjules sessions [--filter=todo|active|done]` : List sessions with status filter.
+- `gjules sessions [--filter=todo|active|done]` : List sessions with status filter and a coarse `next_action` hint.
 - `gjules sessions apply [id] [--dir=/path]` : Check out a local branch named after the session id from the cloud patch base commit, then fetch the latest patch and run local `git apply`.
 - `gjules alias add <name> <id>` : Create a friendly name for a session.
 - `gjules alias list` : Show all session aliases.

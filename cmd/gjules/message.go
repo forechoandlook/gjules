@@ -72,13 +72,13 @@ func msgList(args []string) {
 	flags, positional := splitArgs(args)
 	config, sessionID, opts := parseMsgListOptions(flags, positional, 100, "Usage: gjules msg list [sessionAlias] [--fields=...] [--limit=N] [--detail] [--git] [--type=msg|plan|code] [--refresh]")
 	_ = config
-	filtered := listActivities(sessionID, opts)
+	filtered, dataTime := listActivities(sessionID, opts)
 	if len(filtered) == 0 {
 		fmt.Println("No activities found.")
 		return
 	}
 
-	printActivities(filtered, opts.Fields, opts.Detail, opts.ShowGit)
+	printActivities(filtered, opts.Fields, opts.Detail, opts.ShowGit, dataTime)
 }
 
 func msgLatest(args []string) {
@@ -99,12 +99,12 @@ func msgLatest(args []string) {
 	config, sessionID, opts := parseMsgListOptions(flags, remaining, count, "Usage: gjules msg latest [sessionAlias] [N] [--fields=...] [--detail] [--git] [--type=msg|plan|code] [--refresh]")
 	_ = config
 	opts.Limit = count
-	filtered := listActivities(sessionID, opts)
+	filtered, dataTime := listActivities(sessionID, opts)
 	if len(filtered) == 0 {
 		fmt.Println("No activities found.")
 		return
 	}
-	printActivities(filtered, opts.Fields, opts.Detail, opts.ShowGit)
+	printActivities(filtered, opts.Fields, opts.Detail, opts.ShowGit, dataTime)
 }
 
 type msgListOptions struct {
@@ -156,10 +156,11 @@ func parseMsgListOptions(flags []string, positional []string, defaultLimit int, 
 	return c, sessionID, opts
 }
 
-func listActivities(sessionID string, opts msgListOptions) []Activity {
+func listActivities(sessionID string, opts msgListOptions) ([]Activity, time.Time) {
 	c := loadConfig()
 	key := readKey()
 	var allActivities []Activity
+	dataTime := time.Now()
 
 	cacheFile := ""
 	if c.CurrentUser != "" {
@@ -172,7 +173,10 @@ func listActivities(sessionID string, opts msgListOptions) []Activity {
 				if opts.Debug {
 					fmt.Fprintln(os.Stderr, "Loaded activities from cache.")
 				}
-				return filterActivities(allActivities, opts.FilterType, opts.Limit)
+				if stat, statErr := os.Stat(cacheFile); statErr == nil {
+					dataTime = stat.ModTime()
+				}
+				return filterActivities(allActivities, opts.FilterType, opts.Limit), dataTime
 			}
 		}
 	}
@@ -215,7 +219,7 @@ func listActivities(sessionID string, opts msgListOptions) []Activity {
 		}
 	}
 
-	return filterActivities(allActivities, opts.FilterType, opts.Limit)
+	return filterActivities(allActivities, opts.FilterType, opts.Limit), dataTime
 }
 
 func filterActivities(allActivities []Activity, filterType string, limit int) []Activity {
@@ -258,7 +262,7 @@ func filterActivities(allActivities []Activity, filterType string, limit int) []
 	return filtered
 }
 
-func printActivities(activities []Activity, fields []string, detail bool, showGit bool) {
+func printActivities(activities []Activity, fields []string, detail bool, showGit bool, dataTime time.Time) {
 	headerFields := fields
 	if len(headerFields) == 0 {
 		headerFields = []string{"originator", "content"}
@@ -279,6 +283,7 @@ func printActivities(activities []Activity, fields []string, detail bool, showGi
 
 		fmt.Println(csvFields(headerFields, values))
 	}
+	fmt.Printf("data_time: %s\n", dataTime.Local().Format("2006-01-02 15:04:05"))
 }
 
 func renderActivityContent(a Activity, detail bool, showGit bool) string {
@@ -345,57 +350,7 @@ func renderActivityContent(a Activity, detail bool, showGit bool) string {
 }
 
 func summarizeChangeSet(cs *ChangeSet) string {
-	if cs == nil {
-		return "ChangeSet"
-	}
-
-	files := parseChangeSetFiles(cs.GitPatch.UnidiffPatch)
-	if len(files) == 0 {
-		return "ChangeSet"
-	}
-
-	categoryCounts := map[string]int{}
-	hasAdded := false
-	hasDeleted := false
-	hasRenamed := false
-	for _, f := range files {
-		categoryCounts[classifyChangeFile(f.Path)]++
-		switch f.Status {
-		case "added":
-			hasAdded = true
-		case "deleted":
-			hasDeleted = true
-		case "renamed":
-			hasRenamed = true
-		}
-	}
-
-	var categories []string
-	for _, category := range []string{"code", "tests", "docs", "config", "ci", "deps", "assets", "other"} {
-		if count := categoryCounts[category]; count > 0 {
-			if count == 1 {
-				categories = append(categories, category)
-			} else {
-				categories = append(categories, fmt.Sprintf("%s x%d", category, count))
-			}
-		}
-	}
-	var statusBits []string
-	if hasAdded {
-		statusBits = append(statusBits, "new")
-	}
-	if hasDeleted {
-		statusBits = append(statusBits, "deleted")
-	}
-	if hasRenamed {
-		statusBits = append(statusBits, "renamed")
-	}
-
-	summary := fmt.Sprintf("ChangeSet[%s] (%d files)", strings.Join(categories, ", "), len(files))
-	if len(statusBits) > 0 {
-		summary += " [" + strings.Join(statusBits, ", ") + "]"
-	}
-	return summary
+	return "ChangeSet"
 }
 
 type changeFile struct {

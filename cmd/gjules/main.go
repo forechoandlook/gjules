@@ -7,7 +7,7 @@ import (
 
 // Build-time injected via -ldflags
 var (
-	Version   = "v0.6.4"
+	Version   = "v0.6.5"
 	GitCommit = "unknown"
 	GitTag    = "unknown"
 )
@@ -64,7 +64,7 @@ Usage:
   gjules repo use <alias>            Set default repo
 
   gjules sessions [--limit=20] [--refresh] [--filter=todo|active|done] List sessions
-  gjules sessions show <id|alias>    Show detailed session info (PRs, branch, etc.)
+  gjules sessions show <id|alias> [--detail]  Show session state only by default
   gjules sessions rm <id|alias>      Delete a session
   gjules sessions apply [id|alias]   Check out session branch at patch base commit, then apply latest cloud patch
   gjules alias add <name> <id>       Add session alias
@@ -90,7 +90,7 @@ Usage:
   gjules version                     Show version
 
 Fields:
-  sessions: alias,id,state,title,created,name
+  sessions: alias,id,state,title,source,created
   sources:  name,id,owner,repo,branch,alias
   msg list: originator,content
 
