@@ -2,6 +2,9 @@ package main
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -9,7 +12,7 @@ func TestResolveSessionID(t *testing.T) {
 	// Prepare temp config
 	tmpDir, _ := os.MkdirTemp("", "gjules-test")
 	defer os.RemoveAll(tmpDir)
-	
+
 	originalBase := overriddenBaseDir
 	overriddenBaseDir = tmpDir
 	defer func() { overriddenBaseDir = originalBase }()
@@ -26,9 +29,9 @@ func TestResolveSessionID(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"my-alias", "sessions/12345"},
-		{"67890", "sessions/67890"},
-		{"sessions/abc", "sessions/abc"},
+		{"my-alias", "12345"},
+		{"67890", "67890"},
+		{"sessions/abc", "abc"},
 	}
 
 	for _, tt := range tests {
@@ -97,7 +100,7 @@ func TestOrderedKeys(t *testing.T) {
 		"unknown": "val",
 	}
 	got := orderedKeys(m)
-	
+
 	// Check predefined order
 	order := []string{"id", "title", "created"}
 	lastIdx := -1
@@ -155,4 +158,146 @@ func TestSplitArgs(t *testing.T) {
 	if len(positional) != 2 || positional[0] != "my-alias" || positional[1] != "some text" {
 		t.Errorf("splitArgs failed to extract positional args: %v", positional)
 	}
+}
+
+func TestSummarizeChangeSet(t *testing.T) {
+	cs := &ChangeSet{}
+	cs.GitPatch.UnidiffPatch = strings.Join([]string{
+		"diff --git a/cmd/app/main.go b/cmd/app/main.go",
+		"index 1111111..2222222 100644",
+		"--- a/cmd/app/main.go",
+		"+++ b/cmd/app/main.go",
+		"diff --git a/docs/usage.md b/docs/usage.md",
+		"index 3333333..4444444 100644",
+		"--- a/docs/usage.md",
+		"+++ b/docs/usage.md",
+		"diff --git a/cmd/app/main_test.go b/cmd/app/main_test.go",
+		"new file mode 100644",
+		"--- /dev/null",
+		"+++ b/cmd/app/main_test.go",
+		"diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml",
+		"index 5555555..6666666 100644",
+		"--- a/.github/workflows/release.yml",
+		"+++ b/.github/workflows/release.yml",
+	}, "\n")
+
+	got := summarizeChangeSet(cs)
+	want := "ChangeSet[code, tests, docs, ci] (4 files) [new]"
+	if got != want {
+		t.Fatalf("summarizeChangeSet() = %q; want %q", got, want)
+	}
+}
+
+func TestRenderActivityContent(t *testing.T) {
+	a := Activity{
+		Originator: "agent",
+		AgentMessaged: &AgentMessaged{
+			AgentMessage: "done",
+		},
+		Artifacts: []Artifact{
+			{
+				ChangeSet: &ChangeSet{
+					GitPatch: struct {
+						BaseCommitID string `json:"baseCommitId"`
+						UnidiffPatch string `json:"unidiffPatch"`
+					}{
+						UnidiffPatch: strings.Join([]string{
+							"diff --git a/README.md b/README.md",
+							"--- a/README.md",
+							"+++ b/README.md",
+						}, "\n"),
+					},
+				},
+			},
+		},
+	}
+
+	got := renderActivityContent(a, false, false)
+	want := "done ChangeSet[docs] (1 files)"
+	if got != want {
+		t.Fatalf("renderActivityContent() = %q; want %q", got, want)
+	}
+}
+
+func TestSwitchToSessionBranchFromBaseCommit(t *testing.T) {
+	repo := initTempGitRepo(t)
+	writeRepoFile(t, repo, "README.md", "base\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "base")
+	baseCommit := gitStdout(t, repo, "rev-parse", "HEAD")
+
+	writeRepoFile(t, repo, "README.md", "base\nnext\n")
+	runGit(t, repo, "commit", "-am", "next")
+
+	if err := switchToSessionBranch(repo, "3389472899446525136", strings.TrimSpace(baseCommit)); err != nil {
+		t.Fatalf("switchToSessionBranch() error = %v", err)
+	}
+
+	gotBranch := gitStdout(t, repo, "branch", "--show-current")
+	if strings.TrimSpace(gotBranch) != "3389472899446525136" {
+		t.Fatalf("branch = %q; want session branch", gotBranch)
+	}
+
+	gotHead := gitStdout(t, repo, "rev-parse", "HEAD")
+	if strings.TrimSpace(gotHead) != strings.TrimSpace(baseCommit) {
+		t.Fatalf("HEAD = %q; want base commit %q", gotHead, baseCommit)
+	}
+}
+
+func TestSwitchToSessionBranchRejectsMismatchedExistingBranch(t *testing.T) {
+	repo := initTempGitRepo(t)
+	writeRepoFile(t, repo, "README.md", "base\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "base")
+	baseCommit := strings.TrimSpace(gitStdout(t, repo, "rev-parse", "HEAD"))
+
+	writeRepoFile(t, repo, "README.md", "base\nother\n")
+	runGit(t, repo, "commit", "-am", "other")
+	runGit(t, repo, "switch", "-c", "3389472899446525136")
+	otherCommit := strings.TrimSpace(gitStdout(t, repo, "rev-parse", "HEAD"))
+	runGit(t, repo, "switch", "main")
+
+	err := switchToSessionBranch(repo, "3389472899446525136", baseCommit)
+	if err == nil {
+		t.Fatal("expected mismatch error, got nil")
+	}
+	if !strings.Contains(err.Error(), otherCommit) || !strings.Contains(err.Error(), baseCommit) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func initTempGitRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.name", "test")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	return repo
+}
+
+func writeRepoFile(t *testing.T, repo, relPath, content string) {
+	t.Helper()
+	path := filepath.Join(repo, relPath)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write file %s: %v", path, err)
+	}
+}
+
+func runGit(t *testing.T, repo string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+}
+
+func gitStdout(t *testing.T, repo string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+	return string(out)
 }

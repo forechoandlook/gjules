@@ -28,12 +28,12 @@ type CachedSource struct {
 }
 
 type CachedSession struct {
-	Name       string `json:"name"`
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	State      string `json:"state"`
-	CreateTime string `json:"createTime"`
-	Url        string `json:"url,omitempty"`
+	Name       string          `json:"name"`
+	ID         string          `json:"id"`
+	Title      string          `json:"title"`
+	State      string          `json:"state"`
+	CreateTime string          `json:"createTime"`
+	Url        string          `json:"url,omitempty"`
 	Outputs    []SessionOutput `json:"outputs,omitempty"`
 }
 
@@ -95,6 +95,7 @@ type Artifact struct {
 
 type ChangeSet struct {
 	GitPatch struct {
+		BaseCommitID string `json:"baseCommitId"`
 		UnidiffPatch string `json:"unidiffPatch"`
 	} `json:"gitPatch"`
 }

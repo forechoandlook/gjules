@@ -7,7 +7,7 @@ import (
 
 // Build-time injected via -ldflags
 var (
-	Version   = "v0.6.3"
+	Version   = "v0.6.4"
 	GitCommit = "unknown"
 	GitTag    = "unknown"
 )
@@ -66,7 +66,7 @@ Usage:
   gjules sessions [--limit=20] [--refresh] [--filter=todo|active|done] List sessions
   gjules sessions show <id|alias>    Show detailed session info (PRs, branch, etc.)
   gjules sessions rm <id|alias>      Delete a session
-  gjules sessions apply [id|alias]   Apply latest cloud patch to local workspace
+  gjules sessions apply [id|alias]   Check out session branch at patch base commit, then apply latest cloud patch
   gjules alias add <name> <id>       Add session alias
   gjules alias list                  List session aliases
   gjules alias rm <name>             Remove session alias
@@ -75,6 +75,7 @@ Usage:
   gjules new "prompt" --repo=<alias> Create session with specific repo
 
   gjules msg list [alias] [flags]    List activities
+  gjules msg latest [alias] [N]      Show latest 1 or N activities
   gjules msg list flags:
     --limit=20                       Number of activities
     --detail                         Show multi-line content
@@ -91,7 +92,7 @@ Usage:
 Fields:
   sessions: alias,id,state,title,created,name
   sources:  name,id,owner,repo,branch,alias
-  msg list: originator,content,created
+  msg list: originator,content
 
 Environment:
   GJULES_API_KEY                     API key (overrides config)

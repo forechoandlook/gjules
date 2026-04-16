@@ -37,6 +37,7 @@ gjules msg approve                      # Approve plan
 
 ### Session & Alias Management
 - `gjules sessions [--filter=todo|active|done]` : List sessions with status filter.
+- `gjules sessions apply [id] [--dir=/path]` : Check out a local branch named after the session id from the cloud patch base commit, then fetch the latest patch and run local `git apply`.
 - `gjules alias add <name> <id>` : Create a friendly name for a session.
 - `gjules alias list` : Show all session aliases.
 - `gjules alias use <name>` : Set the "Current Session" context.
@@ -44,6 +45,8 @@ gjules msg approve                      # Approve plan
 ### Messaging (Current or Specific)
 *Note: [id] is optional if 'alias use' was called.*
 - `gjules msg list [id] [--git] [--detail]` : List logs. `--git` for Diff, `--detail` for Plan descriptions.
+- `gjules msg latest [id] [N]` : Show the latest 1 or N logs for quick reading.
+- `gjules msg latest [id] [N] [--type=code]` : Pair well with code-review flows when you only want the newest patches.
 - `gjules msg send [id] "text"` : Send a message.
 - `gjules msg approve [id]` : Approve a plan.
 - `gjules msg wait [id]` : Block until Jules is ready for input or finished.
@@ -61,4 +64,4 @@ gjules msg approve                      # Approve plan
 ## Fields Reference
 - **sessions**: `alias,id,state,title,created`
 - **sources**: `alias,id,owner,repo,branch`
-- **msg list**: `originator,content,created`
+- **msg list**: `originator,content`

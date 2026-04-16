@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,16 @@ func userConfigDir(username string) string {
 
 func userConfigPath(username string) string {
 	return filepath.Join(userConfigDir(username), "data.json")
+}
+
+func userActivityCacheDir(username string) string {
+	return filepath.Join(userConfigDir(username), "activities")
+}
+
+func activityCachePath(username, sessionID string) string {
+	// sessionID might contain slashes if it's a full resource name, so we clean it
+	safeID := strings.ReplaceAll(sessionID, "/", "_")
+	return filepath.Join(userActivityCacheDir(username), safeID+".json")
 }
 
 func configPath() string {
