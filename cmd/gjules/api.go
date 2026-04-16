@@ -19,7 +19,7 @@ func httpClient() *http.Response {
 
 func getHttpClient() *http.Client {
 	return &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 120 * time.Second,
 	}
 }
 

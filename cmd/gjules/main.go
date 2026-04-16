@@ -7,7 +7,7 @@ import (
 
 // Build-time injected via -ldflags
 var (
-	Version   = "v0.6.2"
+	Version   = "v0.6.3"
 	GitCommit = "unknown"
 	GitTag    = "unknown"
 )

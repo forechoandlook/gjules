@@ -674,44 +674,6 @@ func msgList(args []string) {
 
 	key := readKey()
 	pageToken := ""
-
-	type Activity struct {
-		Name          string `json:"name"`
-		ID            string `json:"id"`
-		Description   string `json:"description"`
-		Originator    string `json:"originator"`
-		CreateTime    string `json:"createTime"`
-		AgentMessaged *struct {
-			AgentMessage string `json:"agentMessage"`
-		} `json:"agentMessaged"`
-		UserMessaged *struct {
-			UserMessage string `json:"userMessage"`
-		} `json:"userMessaged"`
-		PlanGenerated *struct {
-			Plan struct {
-				Steps []struct {
-					Title       string `json:"title"`
-					Description string `json:"description"`
-				} `json:"steps"`
-			} `json:"plan"`
-		} `json:"planGenerated"`
-		PlanApproved *struct {
-			PlanID string `json:"planId"`
-		} `json:"planApproved"`
-		ProgressUpdated *struct {
-			Title       string `json:"title"`
-			Description string `json:"description"`
-		} `json:"progressUpdated"`
-		Artifacts []struct {
-			ChangeSet *struct {
-				GitPatch struct {
-					UnidiffPatch string `json:"unidiffPatch"`
-				} `json:"gitPatch"`
-			} `json:"changeSet"`
-			Media interface{} `json:"media"`
-		} `json:"artifacts"`
-	}
-
 	var allActivities []Activity
 
 	for {
@@ -727,12 +689,19 @@ func msgList(args []string) {
 		defer resp.Body.Close()
 		checkResp(resp)
 
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			die(err)
+		}
+
 		var r struct {
 			Activities    []Activity `json:"activities"`
 			NextPageToken string     `json:"nextPageToken"`
 		}
-		json.Unmarshal(bodyBytes, &r)
+		if err := json.Unmarshal(bodyBytes, &r); err != nil {
+			fmt.Fprintf(os.Stderr, "Error decoding activities: %v\n", err)
+			break
+		}
 		
 		allActivities = append(allActivities, r.Activities...)
 
@@ -769,7 +738,7 @@ func msgList(args []string) {
 		filtered = append(filtered, a)
 	}
 
-	// Apply limit: if we have more than limit, take the LATEST ones
+	// Apply limit: take the LATEST ones
 	if limit > 0 && len(filtered) > limit {
 		filtered = filtered[len(filtered)-limit:]
 	}
@@ -781,12 +750,15 @@ func msgList(args []string) {
 	fmt.Println(strings.Join(headerFields, ","))
 
 	for _, a := range filtered {
-		content := ""
+		var parts []string
+		
 		if a.AgentMessaged != nil {
-			content = a.AgentMessaged.AgentMessage
-		} else if a.UserMessaged != nil {
-			content = a.UserMessaged.UserMessage
-		} else if a.PlanGenerated != nil {
+			parts = append(parts, a.AgentMessaged.AgentMessage)
+		}
+		if a.UserMessaged != nil {
+			parts = append(parts, a.UserMessaged.UserMessage)
+		}
+		if a.PlanGenerated != nil {
 			var titles []string
 			for _, s := range a.PlanGenerated.Plan.Steps {
 				title := s.Title
@@ -797,34 +769,34 @@ func msgList(args []string) {
 			}
 			sep := "; "
 			if detail { sep = "\n" }
-			content = "Plan:\n" + strings.Join(titles, sep)
-		} else if a.PlanApproved != nil {
-			content = "Plan Approved"
-		} else if a.ProgressUpdated != nil {
-			content = a.ProgressUpdated.Title
+			parts = append(parts, "Plan:\n" + strings.Join(titles, sep))
+		}
+		if a.PlanApproved != nil {
+			parts = append(parts, "Plan Approved: "+a.PlanApproved.PlanID)
+		}
+		if a.ProgressUpdated != nil {
+			content := a.ProgressUpdated.Title
 			if a.ProgressUpdated.Description != "" {
 				content += ": " + a.ProgressUpdated.Description
 			}
+			if content != "" {
+				parts = append(parts, content)
+			}
 		}
 
-		if len(a.Artifacts) > 0 {
-			var summaries []string
-			for _, art := range a.Artifacts {
-				if art.ChangeSet != nil {
-					if showGit {
-						summaries = append(summaries, "Code Change:\n"+art.ChangeSet.GitPatch.UnidiffPatch)
-					} else {
-						summaries = append(summaries, "ChangeSet")
-					}
-				} else if art.Media != nil {
-					summaries = append(summaries, "Media Artifact")
+		for _, art := range a.Artifacts {
+			if art.ChangeSet != nil {
+				if showGit {
+					parts = append(parts, "Code Change:\n"+art.ChangeSet.GitPatch.UnidiffPatch)
+				} else {
+					parts = append(parts, "ChangeSet")
 				}
-			}
-			if content == "" || (filterType == "code" || showGit) {
-				content = strings.Join(summaries, "\n")
+			} else if art.Media != nil {
+				parts = append(parts, "Media Artifact")
 			}
 		}
 
+		content := strings.Join(parts, "\n")
 		if content == "" && a.Description != "" {
 			content = a.Description
 		}

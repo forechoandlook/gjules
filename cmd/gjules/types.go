@@ -46,3 +46,55 @@ type PullRequest struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 }
+
+type Activity struct {
+	Name            string           `json:"name"`
+	ID              string           `json:"id"`
+	Description     string           `json:"description"`
+	Originator      string           `json:"originator"`
+	CreateTime      string           `json:"createTime"`
+	AgentMessaged   *AgentMessaged   `json:"agentMessaged"`
+	UserMessaged    *UserMessaged    `json:"userMessaged"`
+	PlanGenerated   *PlanGenerated   `json:"planGenerated"`
+	PlanApproved    *PlanApproved    `json:"planApproved"`
+	ProgressUpdated *ProgressUpdated `json:"progressUpdated"`
+	Artifacts       []Artifact       `json:"artifacts"`
+}
+
+type AgentMessaged struct {
+	AgentMessage string `json:"agentMessage"`
+}
+
+type UserMessaged struct {
+	UserMessage string `json:"userMessage"`
+}
+
+type PlanGenerated struct {
+	Plan struct {
+		ID    string `json:"id"`
+		Steps []struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		} `json:"steps"`
+	} `json:"plan"`
+}
+
+type PlanApproved struct {
+	PlanID string `json:"planId"`
+}
+
+type ProgressUpdated struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+type Artifact struct {
+	ChangeSet *ChangeSet  `json:"changeSet"`
+	Media     interface{} `json:"media"`
+}
+
+type ChangeSet struct {
+	GitPatch struct {
+		UnidiffPatch string `json:"unidiffPatch"`
+	} `json:"gitPatch"`
+}
