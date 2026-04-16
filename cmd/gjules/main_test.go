@@ -266,6 +266,26 @@ func TestSwitchToSessionBranchRejectsMismatchedExistingBranch(t *testing.T) {
 	}
 }
 
+func TestCompareVersions(t *testing.T) {
+	tests := []struct {
+		a    string
+		b    string
+		want int
+	}{
+		{"0.6.4", "0.6.4", 0},
+		{"0.6.5", "0.6.4", 1},
+		{"0.6.4", "0.6.5", -1},
+		{"v0.7.0", "0.6.9", 1},
+	}
+
+	for _, tt := range tests {
+		got := compareVersions(tt.a, tt.b)
+		if got != tt.want {
+			t.Fatalf("compareVersions(%q, %q) = %d; want %d", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
 func initTempGitRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

@@ -17,6 +17,8 @@
 curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/install.sh | bash
 ```
 
+Release metadata is published with a lightweight `VERSION` asset, and both `install.sh` and `gjules update` read `releases/latest/download/VERSION` instead of parsing the full release JSON.
+
 To update:
 ```bash
 gjules update

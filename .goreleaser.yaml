@@ -54,5 +54,6 @@ release:
   prerelease: auto
   name_template: "{{.ProjectName}} v{{.Version}}"
   extra_files:
+    - glob: ./VERSION
     - glob: ./install.sh
     - glob: ./uninstall.sh

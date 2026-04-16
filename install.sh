@@ -24,8 +24,11 @@ case "$OS" in
     ;;
 esac
 
-# Find latest release
-LATEST=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
+# Find latest release version from lightweight asset, with fallback for older releases
+LATEST=$(curl -fsSL "https://github.com/${REPO}/releases/latest/download/VERSION" 2>/dev/null | tr -d '\r' | tr -d '\n' || true)
+if [ -z "$LATEST" ]; then
+  LATEST=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
+fi
 if [ -z "$LATEST" ]; then
   echo "Failed to fetch latest release"
   exit 1
