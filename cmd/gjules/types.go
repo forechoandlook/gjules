@@ -33,4 +33,16 @@ type CachedSession struct {
 	Title      string `json:"title"`
 	State      string `json:"state"`
 	CreateTime string `json:"createTime"`
+	Url        string `json:"url,omitempty"`
+	Outputs    []SessionOutput `json:"outputs,omitempty"`
+}
+
+type SessionOutput struct {
+	PullRequest *PullRequest `json:"pullRequest,omitempty"`
+}
+
+type PullRequest struct {
+	URL         string `json:"url"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }

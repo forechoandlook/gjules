@@ -45,7 +45,13 @@ func do(key, method, path string, body ...io.Reader) (*http.Response, error) {
 	if len(body) > 0 {
 		r = body[0]
 	}
-	req, err := http.NewRequest(method, baseURL+path, r)
+	
+	p := path
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	
+	req, err := http.NewRequest(method, baseURL+p, r)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +66,13 @@ func doJSON(key, method, path string, body map[string]interface{}) (*http.Respon
 		b, _ := json.Marshal(body)
 		r = strings.NewReader(string(b))
 	}
-	req, err := http.NewRequest(method, baseURL+path, r)
+	
+	p := path
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	
+	req, err := http.NewRequest(method, baseURL+p, r)
 	if err != nil {
 		return nil, nil, err
 	}

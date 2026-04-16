@@ -89,9 +89,8 @@ func resolveSessionID(aliasOrID string) string {
 	if fullID, ok := c.SessionAlias[aliasOrID]; ok {
 		id = fullID
 	}
-	if id != "" && !strings.HasPrefix(id, "sessions/") {
-		id = "sessions/" + id
-	}
+	// Important: We return the ID part ONLY for consistency
+	id = strings.TrimPrefix(id, "sessions/")
 	return id
 }
 

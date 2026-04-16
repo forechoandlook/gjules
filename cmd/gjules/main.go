@@ -7,7 +7,7 @@ import (
 
 // Build-time injected via -ldflags
 var (
-	Version   = "v0.6.1"
+	Version   = "v0.6.2"
 	GitCommit = "unknown"
 	GitTag    = "unknown"
 )
@@ -33,6 +33,8 @@ func main() {
 		handleNew(os.Args[2:])
 	case "msg":
 		handleMsg(os.Args[2:])
+	case "update":
+		handleUpdate()
 	case "version":
 		fmt.Printf("gjules %s (commit: %s, tag: %s)\n", Version, GitCommit, GitTag)
 	case "help", "-h", "--help":
@@ -55,24 +57,35 @@ Usage:
   gjules user current                Show current user
 
   gjules sources [--limit=20] [--refresh]  List all sources (repos)
+  gjules sources show <id|alias>     Show detailed source info
   gjules repo add <alias> <source>   Add repo alias
   gjules repo list                   List repo aliases
   gjules repo rm <alias>             Remove repo alias
   gjules repo use <alias>            Set default repo
 
   gjules sessions [--limit=20] [--refresh] [--filter=todo|active|done] List sessions
+  gjules sessions show <id|alias>    Show detailed session info (PRs, branch, etc.)
+  gjules sessions rm <id|alias>      Delete a session
+  gjules sessions apply [id|alias]   Apply latest cloud patch to local workspace
   gjules alias add <name> <id>       Add session alias
   gjules alias list                  List session aliases
   gjules alias rm <name>             Remove session alias
   gjules alias use <name>            Set current session
-  gjules new "prompt" [--repo=...]   Create session
+  gjules new "prompt" [flags]        Create session
   gjules new "prompt" --repo=<alias> Create session with specific repo
 
-  gjules msg list [alias] [--limit=20] [--detail] [--git] List activities
+  gjules msg list [alias] [flags]    List activities
+  gjules msg list flags:
+    --limit=20                       Number of activities
+    --detail                         Show multi-line content
+    --git                            Show code diffs
+    --type=msg|plan|code             Filter by type
+  gjules msg show <alias> <actID>    Show detailed activity JSON
   gjules msg send [alias] "text"     Send message
   gjules msg approve [alias]         Approve plan
   gjules msg wait [alias]            Wait for session to be ready
 
+  gjules update                      Update gjules to the latest version
   gjules version                     Show version
 
 Fields:

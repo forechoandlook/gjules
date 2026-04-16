@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -102,6 +103,17 @@ func userCurrent() {
 // --- Sources ---
 
 func sources(args []string) {
+	if len(args) > 0 {
+		switch args[0] {
+		case "show":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "Usage: gjules sources show <id|alias>")
+				os.Exit(1)
+			}
+			sourceShow(args[1])
+			return
+		}
+	}
 	flags, _ := splitArgs(args)
 	fields, _ := parseFields(flags)
 	if len(fields) == 0 {
@@ -303,6 +315,27 @@ func sourceUse(alias string) {
 // --- Sessions ---
 
 func sessions(args []string) {
+	if len(args) > 0 {
+		switch args[0] {
+		case "show":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "Usage: gjules sessions show <id|alias>")
+				os.Exit(1)
+			}
+			sessionShow(args[1])
+			return
+		case "rm":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "Usage: gjules sessions rm <id|alias>")
+				os.Exit(1)
+			}
+			sessionRm(args[1])
+			return
+		case "apply":
+			sessionApply(args[1:])
+			return
+		}
+	}
 	flags, _ := splitArgs(args)
 	fields, _ := parseFields(flags)
 	if len(fields) == 0 {
@@ -323,7 +356,7 @@ func sessions(args []string) {
 	}
 
 	c := loadConfig()
-	if !refresh && len(c.SessionsCache) > 0 && time.Since(c.SessCacheTime) < 1*time.Hour {
+	if !refresh && len(c.SessionsCache) > 0 && time.Since(c.SessCacheTime) < 5*time.Minute {
 		printSessions(fields, c.SessionsCache, limit, filter)
 		return
 	}
@@ -513,18 +546,31 @@ func handleAlias(args []string) {
 
 func handleNew(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: gjules new \"prompt\"")
-		fmt.Fprintln(os.Stderr, "       gjules new \"prompt\" --repo=<alias>")
+		fmt.Fprintln(os.Stderr, "Usage: gjules new \"prompt\" [flags]")
+		fmt.Fprintln(os.Stderr, "Flags:")
+		fmt.Fprintln(os.Stderr, "  --repo=<alias>      Specify repository")
+		fmt.Fprintln(os.Stderr, "  --branch=<name>     Specify starting branch")
+		fmt.Fprintln(os.Stderr, "  --auto-pr           Enable automatic PR creation")
+		fmt.Fprintln(os.Stderr, "  --require-approval  Require plan approval (default: false)")
 		os.Exit(1)
 	}
 	
 	repo := ""
+	branch := ""
+	autoPR := false
+	requireApproval := false
 	repoSet := false
 	var promptParts []string
 	for _, a := range args {
 		if strings.HasPrefix(a, "--repo=") {
 			repo = strings.TrimPrefix(a, "--repo=")
 			repoSet = true
+		} else if strings.HasPrefix(a, "--branch=") {
+			branch = strings.TrimPrefix(a, "--branch=")
+		} else if a == "--auto-pr" {
+			autoPR = true
+		} else if a == "--require-approval" {
+			requireApproval = true
 		} else {
 			promptParts = append(promptParts, a)
 		}
@@ -535,16 +581,22 @@ func handleNew(args []string) {
 		os.Exit(1)
 	}
 	
-	newSession(strings.Join(promptParts, " "), repo, repoSet)
+	newSession(strings.Join(promptParts, " "), repo, branch, autoPR, requireApproval, repoSet)
 }
 
-func newSession(prompt, repoAlias string, repoSet bool) {
+func newSession(prompt, repoAlias, branch string, autoPR, requireApproval, repoSet bool) {
 	key := readKey()
 	c := loadConfig()
 	
-	body := map[string]interface{}{"prompt": prompt}
+	body := map[string]interface{}{
+		"prompt":              prompt,
+		"requirePlanApproval": requireApproval,
+	}
 	
-	// Add source context if repo specified or use default if not explicitly set to empty
+	if autoPR {
+		body["automationMode"] = "AUTO_CREATE_PR"
+	}
+	
 	repo := repoAlias
 	if !repoSet && repo == "" {
 		repo = c.CurrentRepo
@@ -552,10 +604,17 @@ func newSession(prompt, repoAlias string, repoSet bool) {
 	
 	if repo != "" {
 		src := resolveSource(repo)
-		body["sourceContext"] = map[string]interface{}{
+		sourceContext := map[string]interface{}{
 			"source": src,
-			"githubRepoContext": map[string]interface{}{},
 		}
+		if branch != "" {
+			sourceContext["githubRepoContext"] = map[string]interface{}{
+				"startingBranch": branch,
+			}
+		} else {
+			sourceContext["githubRepoContext"] = map[string]interface{}{}
+		}
+		body["sourceContext"] = sourceContext
 	}
 	
 	resp, result, err := doJSON(key, "POST", "/sessions", body)
@@ -591,16 +650,16 @@ func msgList(args []string) {
 	if len(positional) > 0 {
 		sessionID = resolveSessionID(positional[0])
 	} else if c.CurrentSession != "" {
-		sessionID = c.CurrentSession // Already resolved
+		sessionID = c.CurrentSession
 	} else {
-		fmt.Fprintln(os.Stderr, "Usage: gjules msg list [sessionAlias] [--fields=...] [--limit=N] [--detail] [--git]")
-		fmt.Fprintln(os.Stderr, "No current session set. Use 'gjules alias use <alias>' first.")
+		fmt.Fprintln(os.Stderr, "Usage: gjules msg list [sessionAlias] [--fields=...] [--limit=N] [--detail] [--git] [--type=msg|plan|code]")
 		os.Exit(1)
 	}
 
-	limit := 20
+	limit := 100
 	detail := false
 	showGit := false
+	filterType := ""
 	for _, a := range flags {
 		if strings.HasPrefix(a, "--limit=") {
 			fmt.Sscanf(a, "--limit=%d", &limit)
@@ -608,20 +667,55 @@ func msgList(args []string) {
 			detail = true
 		} else if a == "--git" {
 			showGit = true
+		} else if strings.HasPrefix(a, "--type=") {
+			filterType = strings.TrimPrefix(a, "--type=")
 		}
 	}
 
 	key := readKey()
 	pageToken := ""
-	count := 0
-	first := true
+
+	type Activity struct {
+		Name          string `json:"name"`
+		ID            string `json:"id"`
+		Description   string `json:"description"`
+		Originator    string `json:"originator"`
+		CreateTime    string `json:"createTime"`
+		AgentMessaged *struct {
+			AgentMessage string `json:"agentMessage"`
+		} `json:"agentMessaged"`
+		UserMessaged *struct {
+			UserMessage string `json:"userMessage"`
+		} `json:"userMessaged"`
+		PlanGenerated *struct {
+			Plan struct {
+				Steps []struct {
+					Title       string `json:"title"`
+					Description string `json:"description"`
+				} `json:"steps"`
+			} `json:"plan"`
+		} `json:"planGenerated"`
+		PlanApproved *struct {
+			PlanID string `json:"planId"`
+		} `json:"planApproved"`
+		ProgressUpdated *struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		} `json:"progressUpdated"`
+		Artifacts []struct {
+			ChangeSet *struct {
+				GitPatch struct {
+					UnidiffPatch string `json:"unidiffPatch"`
+				} `json:"gitPatch"`
+			} `json:"changeSet"`
+			Media interface{} `json:"media"`
+		} `json:"artifacts"`
+	}
+
+	var allActivities []Activity
 
 	for {
-		pageSize := 100
-		if limit > 0 && limit-count < 100 {
-			pageSize = limit - count
-		}
-		path := fmt.Sprintf("/%s/activities?pageSize=%d", sessionID, pageSize)
+		path := fmt.Sprintf("/sessions/%s/activities?pageSize=100", sessionID)
 		if pageToken != "" {
 			path += "&pageToken=" + url.QueryEscape(pageToken)
 		}
@@ -635,151 +729,139 @@ func msgList(args []string) {
 
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		var r struct {
-			Activities []struct {
-				Name          string `json:"name"`
-				ID            string `json:"id"`
-				Description   string `json:"description"`
-				Originator    string `json:"originator"`
-				CreateTime    string `json:"createTime"`
-				AgentMessaged *struct {
-					AgentMessage string `json:"agentMessage"`
-				} `json:"agentMessaged"`
-				UserMessaged *struct {
-					UserMessage string `json:"userMessage"`
-				} `json:"userMessaged"`
-				PlanGenerated *struct {
-					Plan struct {
-						Steps []struct {
-							Title       string `json:"title"`
-							Description string `json:"description"`
-						} `json:"steps"`
-					} `json:"plan"`
-				} `json:"planGenerated"`
-				PlanApproved *struct {
-					PlanID string `json:"planId"`
-				} `json:"planApproved"`
-				ProgressUpdated *struct {
-					Title       string `json:"title"`
-					Description string `json:"description"`
-				} `json:"progressUpdated"`
-				Artifacts []struct {
-					ChangeSet *struct {
-						GitPatch struct {
-							UnidiffPatch string `json:"unidiffPatch"`
-						} `json:"gitPatch"`
-					} `json:"changeSet"`
-					Media interface{} `json:"media"`
-				} `json:"artifacts"`
-			} `json:"activities"`
-			NextPageToken string `json:"nextPageToken"`
+			Activities    []Activity `json:"activities"`
+			NextPageToken string     `json:"nextPageToken"`
 		}
 		json.Unmarshal(bodyBytes, &r)
-
-		if first {
-			headerFields := fields
-			if len(headerFields) == 0 {
-				headerFields = []string{"originator", "content", "created"}
-			}
-			fmt.Println(strings.Join(headerFields, ","))
-			first = false
-		}
-
-		if len(r.Activities) == 0 && pageToken == "" {
-			fmt.Println("No activities found.")
-			return
-		}
-
-		for _, a := range r.Activities {
-			content := ""
-			if a.AgentMessaged != nil {
-				content = a.AgentMessaged.AgentMessage
-			} else if a.UserMessaged != nil {
-				content = a.UserMessaged.UserMessage
-			} else if a.PlanGenerated != nil {
-				var titles []string
-				for _, s := range a.PlanGenerated.Plan.Steps {
-					title := s.Title
-					if detail && s.Description != "" {
-						title += "\n  - Description: " + s.Description
-					}
-					titles = append(titles, title)
-				}
-				sep := "; "
-				if detail {
-					sep = "\n"
-				}
-				content = "Plan:\n" + strings.Join(titles, sep)
-			} else if a.PlanApproved != nil {
-				content = "Plan Approved: " + a.PlanApproved.PlanID
-			} else if a.ProgressUpdated != nil {
-				content = a.ProgressUpdated.Title
-				if a.ProgressUpdated.Description != "" {
-					content += ": " + a.ProgressUpdated.Description
-				}
-			}
-
-			if content == "" && len(a.Artifacts) > 0 {
-				var summaries []string
-				for _, art := range a.Artifacts {
-					if art.ChangeSet != nil {
-						if showGit {
-							summaries = append(summaries, "Code Change:\n"+art.ChangeSet.GitPatch.UnidiffPatch)
-						} else {
-							summaries = append(summaries, "ChangeSet")
-						}
-					} else if art.Media != nil {
-						summaries = append(summaries, "Media")
-					}
-				}
-				content = "[Artifacts: " + strings.Join(summaries, "\n") + "]"
-			}
-
-			if content == "" && a.Description != "" {
-				content = a.Description
-			}
-
-			if !detail {
-				// Clean up content for CSV (remove newlines for preview)
-				content = strings.ReplaceAll(content, "\n", " ")
-				if len(content) > 50 {
-					content = content[:47] + "..."
-				}
-			}
-
-			t, _ := time.Parse(time.RFC3339, a.CreateTime)
-			values := map[string]string{
-				"id":          a.ID,
-				"originator":  a.Originator,
-				"description": a.Description,
-				"content":     content,
-				"created":     t.Local().Format("2006-01-02 15:04:05"),
-				"name":        a.Name,
-			}
-			// Use the requested order of fields
-			selectedFields := fields
-			if len(selectedFields) == 0 {
-				selectedFields = []string{"originator", "content", "created"}
-			}
-			fmt.Println(csvFields(selectedFields, values))
-			count++
-			if limit > 0 && count >= limit {
-				return
-			}
-		}
+		
+		allActivities = append(allActivities, r.Activities...)
 
 		pageToken = r.NextPageToken
 		if pageToken == "" {
 			break
 		}
 	}
+
+	if len(allActivities) == 0 {
+		fmt.Println("No activities found.")
+		return
+	}
+
+	// Filtering
+	var filtered []Activity
+	for _, a := range allActivities {
+		if filterType != "" {
+			isCode := false
+			for _, art := range a.Artifacts {
+				if art.ChangeSet != nil { isCode = true; break }
+			}
+			isPlan := a.PlanGenerated != nil
+			isMsg := a.AgentMessaged != nil || a.UserMessaged != nil
+			
+			match := false
+			switch filterType {
+			case "msg": match = isMsg
+			case "plan": match = isPlan
+			case "code": match = isCode
+			}
+			if !match { continue }
+		}
+		filtered = append(filtered, a)
+	}
+
+	// Apply limit: if we have more than limit, take the LATEST ones
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[len(filtered)-limit:]
+	}
+
+	headerFields := fields
+	if len(headerFields) == 0 {
+		headerFields = []string{"id", "originator", "content", "created"}
+	}
+	fmt.Println(strings.Join(headerFields, ","))
+
+	for _, a := range filtered {
+		content := ""
+		if a.AgentMessaged != nil {
+			content = a.AgentMessaged.AgentMessage
+		} else if a.UserMessaged != nil {
+			content = a.UserMessaged.UserMessage
+		} else if a.PlanGenerated != nil {
+			var titles []string
+			for _, s := range a.PlanGenerated.Plan.Steps {
+				title := s.Title
+				if detail && s.Description != "" {
+					title += "\n  - " + s.Description
+				}
+				titles = append(titles, title)
+			}
+			sep := "; "
+			if detail { sep = "\n" }
+			content = "Plan:\n" + strings.Join(titles, sep)
+		} else if a.PlanApproved != nil {
+			content = "Plan Approved"
+		} else if a.ProgressUpdated != nil {
+			content = a.ProgressUpdated.Title
+			if a.ProgressUpdated.Description != "" {
+				content += ": " + a.ProgressUpdated.Description
+			}
+		}
+
+		if len(a.Artifacts) > 0 {
+			var summaries []string
+			for _, art := range a.Artifacts {
+				if art.ChangeSet != nil {
+					if showGit {
+						summaries = append(summaries, "Code Change:\n"+art.ChangeSet.GitPatch.UnidiffPatch)
+					} else {
+						summaries = append(summaries, "ChangeSet")
+					}
+				} else if art.Media != nil {
+					summaries = append(summaries, "Media Artifact")
+				}
+			}
+			if content == "" || (filterType == "code" || showGit) {
+				content = strings.Join(summaries, "\n")
+			}
+		}
+
+		if content == "" && a.Description != "" {
+			content = a.Description
+		}
+
+		if !detail {
+			content = strings.ReplaceAll(content, "\n", " ")
+			if len(content) > 60 {
+				content = content[:57] + "..."
+			}
+		}
+
+		t, _ := time.Parse(time.RFC3339, a.CreateTime)
+		values := map[string]string{
+			"id":          a.ID,
+			"originator":  a.Originator,
+			"description": a.Description,
+			"content":     content,
+			"created":     t.Local().Format("2006-01-02 15:04:05"),
+			"name":        a.Name,
+		}
+		
+		fmt.Println(csvFields(headerFields, values))
+	}
 }
 
 func handleMsg(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: gjules msg <list|send|approve|wait>")
+		fmt.Fprintln(os.Stderr, "Usage: gjules msg <list|show|send|approve|wait>")
 		os.Exit(1)
 	}
 	switch args[0] {
+	case "show":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: gjules msg show <sessionAlias> <activityID>")
+			os.Exit(1)
+		}
+		msgShow(args[1], args[2])
 	case "list":
 		msgList(args[1:])
 	case "wait":
@@ -889,7 +971,7 @@ func msgWait(sessionAlias string) {
 	fmt.Printf("Waiting for session %s...\n", sessionID)
 
 	for {
-		resp, err := do(key, "GET", "/"+sessionID)
+		resp, err := do(key, "GET", "/sessions/"+sessionID)
 		if err != nil {
 			die(err)
 		}
@@ -934,4 +1016,211 @@ func notify(msg string) {
 		psCommand := fmt.Sprintf("$ws = New-Object -ComObject WScript.Shell; $ws.Popup(%q, 0, \"Gjules Update\", 64)", msg)
 		exec.Command("powershell", "-Command", psCommand).Run()
 	}
+}
+
+// --- Detailed Management Functions ---
+
+func sessionShow(target string) {
+	sessionID := resolveSessionID(target)
+	key := readKey()
+
+	resp, result, err := doJSON(key, "GET", "/sessions/"+sessionID, nil)
+	if err != nil {
+		die(err)
+	}
+	defer resp.Body.Close()
+	checkResp(resp)
+
+	b, _ := json.MarshalIndent(result, "", "  ")
+	fmt.Println(string(b))
+}
+
+func sessionRm(target string) {
+	sessionID := resolveSessionID(target)
+	key := readKey()
+
+	resp, err := do(key, "DELETE", "/sessions/"+sessionID)
+	if err != nil {
+		die(err)
+	}
+	defer resp.Body.Close()
+	checkResp(resp)
+
+	fmt.Printf("Session %s deleted successfully.\n", sessionID)
+}
+
+func sourceShow(target string) {
+	src := resolveSource(target)
+	if !strings.HasPrefix(src, "sources/") {
+		src = "sources/" + src
+	}
+	key := readKey()
+
+	resp, result, err := doJSON(key, "GET", "/"+src, nil)
+	if err != nil {
+		die(err)
+	}
+	defer resp.Body.Close()
+	checkResp(resp)
+
+	b, _ := json.MarshalIndent(result, "", "  ")
+	fmt.Println(string(b))
+}
+
+func msgShow(sessionAlias, activityID string) {
+	sessionID := resolveSessionID(sessionAlias)
+	key := readKey()
+
+	path := fmt.Sprintf("/sessions/%s/activities/%s", sessionID, activityID)
+	resp, result, err := doJSON(key, "GET", path, nil)
+	if err != nil {
+		die(err)
+	}
+	defer resp.Body.Close()
+	checkResp(resp)
+
+	b, _ := json.MarshalIndent(result, "", "  ")
+	fmt.Println(string(b))
+}
+
+func sessionApply(args []string) {
+	target := ""
+	dir := "."
+	for _, a := range args {
+		if strings.HasPrefix(a, "--dir=") {
+			dir = strings.TrimPrefix(a, "--dir=")
+		} else if target == "" {
+			target = a
+		}
+	}
+
+	sessionID := resolveSessionID(target)
+	key := readKey()
+
+	fmt.Printf("Fetching latest code changes for session %s...\n", sessionID)
+
+	var patch string
+
+	// 1. Try to get patch from Session Outputs first (more reliable for COMPLETED sessions)
+	resp, result, err := doJSON(key, "GET", "/sessions/"+sessionID, nil)
+	if err == nil {
+		defer resp.Body.Close()
+		if outputs, ok := result["outputs"].([]interface{}); ok {
+			for _, o := range outputs {
+				if outMap, ok := o.(map[string]interface{}); ok {
+					if cs, ok := outMap["changeSet"].(map[string]interface{}); ok {
+						if gp, ok := cs["gitPatch"].(map[string]interface{}); ok {
+							if p, ok := gp["unidiffPatch"].(string); ok {
+								patch = p
+								goto applyPatch
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Fallback to activities if not found in outputs
+	{
+		path := fmt.Sprintf("/sessions/%s/activities?pageSize=50", sessionID)
+		resp, err := do(key, "GET", path)
+		if err == nil {
+			defer resp.Body.Close()
+			var r struct {
+				Activities []struct {
+					Artifacts []struct {
+						ChangeSet *struct {
+							GitPatch struct {
+								UnidiffPatch string `json:"unidiffPatch"`
+							} `json:"gitPatch"`
+						} `json:"changeSet"`
+					} `json:"artifacts"`
+				} `json:"activities"`
+			}
+			json.NewDecoder(resp.Body).Decode(&r)
+			for _, a := range r.Activities {
+				for _, art := range a.Artifacts {
+					if art.ChangeSet != nil {
+						patch = art.ChangeSet.GitPatch.UnidiffPatch
+						goto applyPatch
+					}
+				}
+			}
+		}
+	}
+
+applyPatch:
+	if patch == "" {
+		fmt.Fprintln(os.Stderr, "Error: No code changes (ChangeSet) found in this session.")
+		os.Exit(1)
+	}
+
+	gitArgs := []string{"apply", "-"}
+	if dir != "." {
+		gitArgs = append([]string{"-C", dir}, gitArgs...)
+	}
+
+	cmd := exec.Command("git", gitArgs...)
+	cmd.Stdin = strings.NewReader(patch)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error applying patch to %s: %v\n", dir, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Successfully applied code changes to %s.\n", dir)
+}
+
+
+func handleUpdate() {
+	fmt.Printf("Current version: %s\n", Version)
+	fmt.Println("Checking for updates...")
+	
+	latest, err := fetchLatestVersion()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error checking for updates: %v\n", err)
+		os.Exit(1)
+	}
+	
+	// Normalize versions for comparison (remove 'v' prefix if present)
+	current := strings.TrimPrefix(Version, "v")
+	latest = strings.TrimPrefix(latest, "v")
+	
+	if current == latest {
+		fmt.Printf("You are already on the latest version (%s).\n", Version)
+		return
+	}
+	
+	fmt.Printf("New version available: v%s. Updating...\n", latest)
+	cmd := exec.Command("bash", "-c", "curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/install.sh | bash")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("gjules updated successfully!")
+}
+
+func fetchLatestVersion() (string, error) {
+	resp, err := http.Get("https://raw.githubusercontent.com/forechoandlook/gjules/main/VERSION")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("server returned status %s", resp.Status)
+	}
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	
+	return strings.TrimSpace(string(body)), nil
 }

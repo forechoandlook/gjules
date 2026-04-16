@@ -6,9 +6,10 @@
 
 - **Multi-user Support**: Config & Cache stored per-user in `~/.gjules/users/`.
 - **Smart Notifications**: `msg wait` polls status and notifies you on macOS/Linux/Windows with popups and sound.
-- **Diff Viewer**: `msg list --git` specifically displays code changes (Git Patch).
-- **Session Focus**: `alias use <name>` to set a "current session" context and stop typing IDs.
-- **Task Filters**: `sessions --filter=todo` to see only tasks requiring your action.
+- **Diff Viewer**: `msg list --git` displays code changes (Git Patch).
+- **Session Focus**: `alias use <name>` to set a "current session" context.
+- **Code Application**: `sessions apply <id>` to directly apply cloud patches to your local workspace.
+- **Task Filters**: `sessions --filter=todo` to see tasks requiring action.
 
 ## Installation
 
@@ -16,29 +17,25 @@
 curl -sSf https://raw.githubusercontent.com/forechoandlook/gjules/main/install.sh | bash
 ```
 
+To update:
+```bash
+gjules update
+```
+
 ## Quick Reference
 
-### Configuration & Users
-- `gjules user add pro "YOUR_API_KEY"` : Add user.
-- `gjules user current` : Show current active user.
-- `gjules user switch pro` : Switch current user.
-
 ### Repository Management
-- `gjules sources --limit=10` : List all available GitHub repos in your org.
+- `gjules sources --limit=10` : List all available GitHub repos.
+- `gjules sources show <id|alias>` : Show detailed repo information (including branch list).
 - `gjules repo add myrepo <source_name>` : Create a local alias for a repo.
-- `gjules repo use myrepo` : Set the default repo for new sessions.
 
 ### Messaging & Workflow
-- `gjules new "Implement auth module"` : Start a new task.
-- `gjules alias use my-task` : Set current task focus.
-- `gjules msg wait` : Wait for completion with desktop notification.
-- `gjules msg list --git` : View the generated Git Diff.
-- `gjules msg approve` : Approve the plan to apply changes.
-- `gjules sessions --filter=todo` : List all sessions waiting for your response.
-
-## Feedback
-- `gjules feedback --type=bug "my feedback"`
-- `gjules feedback --open --type=bug` (Opens GitHub issue)
+- `gjules new "Implement auth" --auto-pr --branch=dev` : Start a new task with PR automation and custom base branch.
+- `gjules sessions show <id>` : View session details (PR URL, Branch name, status).
+- `gjules sessions apply <id>` : **Apply the latest code changes from Jules to your local files.**
+- `gjules msg list --type=code` : View only activity history related to code changes.
+- `gjules msg show <alias> <actID>` : View raw JSON detail of a specific activity.
+- `gjules msg approve` : Approve the plan.
 
 ## Contributing
 To run tests:
