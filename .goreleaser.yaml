@@ -4,6 +4,7 @@ project_name: gjules
 before:
   hooks:
     - go mod tidy -C cmd/gjules
+    - sh -c 'printf "%s" "{{ .Version }}" | sed "s/^v//" > VERSION'
 
 builds:
   - dir: cmd/gjules
@@ -54,6 +55,5 @@ release:
   prerelease: auto
   name_template: "{{.ProjectName}} v{{.Version}}"
   extra_files:
-    - glob: ./VERSION
     - glob: ./install.sh
     - glob: ./uninstall.sh

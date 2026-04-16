@@ -1,4 +1,4 @@
-VERSION ?= 0.1.0
+VERSION ?= $(shell git describe --tags --always 2>/dev/null)
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 GIT_TAG ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 

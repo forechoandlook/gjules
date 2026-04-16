@@ -24,11 +24,8 @@ case "$OS" in
     ;;
 esac
 
-# Find latest release version from lightweight asset, with fallback for older releases
-LATEST=$(curl -fsSL "https://github.com/${REPO}/releases/latest/download/VERSION" 2>/dev/null | tr -d '\r' | tr -d '\n' || true)
-if [ -z "$LATEST" ]; then
-  LATEST=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
-fi
+# Fetch latest release tag from GitHub API
+LATEST=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
 if [ -z "$LATEST" ]; then
   echo "Failed to fetch latest release"
   exit 1
@@ -45,14 +42,8 @@ fi
 BIN_PATH="$INSTALL_DIR/$BINARY"
 URL="https://github.com/${REPO}/releases/download/v${LATEST}/${ASSET}"
 
-# Check if already installed
 if [ -f "$BIN_PATH" ]; then
-  CURRENT=$("$BIN_PATH" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-  if [ "$CURRENT" = "$LATEST" ]; then
-    echo "gjules v${LATEST} is already installed. Nothing to do."
-    exit 0
-  fi
-  echo "Updating from v${CURRENT:-unknown} to v${LATEST}..."
+  echo "Installing gjules v${LATEST} for ${OS}/${ARCH} (updating existing install)..."
 else
   echo "Installing gjules v${LATEST} for ${OS}/${ARCH}..."
 fi
