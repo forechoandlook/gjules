@@ -63,7 +63,6 @@ func sessions(args []string) {
 	key := readKey()
 	pageToken := ""
 	var allSessions []CachedSession
-	first := true
 
 	for {
 		path := "/sessions?pageSize=100"
@@ -75,7 +74,6 @@ func sessions(args []string) {
 		if err != nil {
 			die(err)
 		}
-		defer resp.Body.Close()
 		checkResp(resp)
 
 		var r struct {
@@ -89,6 +87,7 @@ func sessions(args []string) {
 			NextPageToken string `json:"nextPageToken"`
 		}
 		json.NewDecoder(resp.Body).Decode(&r)
+		resp.Body.Close()
 
 		for _, s := range r.Sessions {
 			allSessions = append(allSessions, CachedSession{
@@ -111,14 +110,11 @@ func sessions(args []string) {
 	c.SessCacheTime = time.Now()
 	saveConfig(c)
 
-	if first {
-		fmt.Println(strings.Join(fields, ","))
-		first = false
-	}
 	printSessions(fields, allSessions, limit, filter, c.SessCacheTime)
 }
 
 func printSessions(fields []string, sessions []CachedSession, limit int, filter string, dataTime time.Time) {
+	fmt.Println(strings.Join(fields, ","))
 	c := loadConfig()
 	reverseAlias := make(map[string]string)
 	for alias, id := range c.SessionAlias {

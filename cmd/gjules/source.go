@@ -59,7 +59,6 @@ func sources(args []string) {
 		if err != nil {
 			die(err)
 		}
-		defer resp.Body.Close()
 		checkResp(resp)
 
 		var r struct {
@@ -77,6 +76,7 @@ func sources(args []string) {
 			NextPageToken string `json:"nextPageToken"`
 		}
 		json.NewDecoder(resp.Body).Decode(&r)
+		resp.Body.Close()
 
 		for _, s := range r.Sources {
 			owner := ""
@@ -108,11 +108,11 @@ func sources(args []string) {
 	c.CacheTime = time.Now()
 	saveConfig(c)
 
-	fmt.Println(strings.Join(fields, ","))
 	printSources(fields, allSources, limit, c.CacheTime)
 }
 
 func printSources(fields []string, sources []CachedSource, limit int, dataTime time.Time) {
+	fmt.Println(strings.Join(fields, ","))
 	c := loadConfig()
 	reverseAlias := make(map[string]string)
 	for alias, src := range c.RepoAlias {

@@ -33,6 +33,8 @@ gjules update
 
 ### Messaging & Workflow
 - `gjules new "Implement auth" --auto-pr --branch=dev` : Start a new task with PR automation and custom base branch.
+- `gjules auto_add <repo> "prompt"` : Create a session by repo name — no alias setup needed. Repo can be `gssh`, `forechoandlook/gssh`, or `https://github.com/forechoandlook/gssh`. Looks up the source automatically (refreshes cache if stale) and creates the session.
+  - Optional flags: `--branch=<name>`, `--auto-pr`
 - `gjules sessions show <id>` : View session details (PR URL, Branch name, status).
 - `gjules sessions show <id>` now prints a short summary before raw JSON, including inferred `next_action`.
 - `gjules sessions apply <id>` : Create or reuse a local branch named after the session id at the cloud patch base commit, then apply the latest cloud patch.

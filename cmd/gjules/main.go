@@ -31,6 +31,8 @@ func main() {
 		handleAlias(os.Args[2:])
 	case "new":
 		handleNew(os.Args[2:])
+	case "auto_add":
+		handleAutoAdd(os.Args[2:])
 	case "msg":
 		handleMsg(os.Args[2:])
 	case "update":
@@ -73,6 +75,8 @@ Usage:
   gjules alias use <name>            Set current session
   gjules new "prompt" [flags]        Create session
   gjules new "prompt" --repo=<alias> Create session with specific repo
+  gjules auto_add <repo> "prompt"    Create session by repo name (resolves source automatically)
+    repo can be: gssh, forechoandlook/gssh, https://github.com/forechoandlook/gssh
 
   gjules msg list [alias] [flags]    List activities
   gjules msg latest [alias] [N]      Show latest 1 or N activities

@@ -22,6 +22,7 @@ gjules repo list                        # View aliases and current default
 
 # 3. Session Management
 gjules new "Implement a health check"   # Starts session on default repo
+gjules auto_add <repo> "<prompt>"       # Create session by repo name directly
 gjules alias add bug1 <session_id>      # Name your session
 gjules alias use bug1                   # Focus on this session
 gjules msg wait                         # Wait for Jules to finish (Beep & Notify!)
@@ -34,6 +35,15 @@ gjules msg approve                      # Approve plan
 ```
 
 ## Command Reference
+
+### Quick Session Creation
+- `gjules auto_add <repo> "<prompt>"` : Create a session by repo name — no alias setup needed.
+  - `<repo>` can be any of:
+    - `gssh` — repo name only (matches any owner)
+    - `forechoandlook/gssh` — owner/repo
+    - `https://github.com/forechoandlook/gssh` — full GitHub URL (http/https, trailing slash and `.git` suffix are stripped)
+  - Internally: normalizes the input to `owner/repo` or `repo`, searches the local sources cache for a match, refreshes cache from API if empty or stale (>24h), then calls `new` with the resolved source name.
+  - Optional: `--branch=<name>`, `--auto-pr`
 
 ### Session & Alias Management
 - `gjules sessions [--filter=todo|active|done]` : List sessions with status filter and a coarse `next_action` hint.
@@ -51,10 +61,8 @@ gjules msg approve                      # Approve plan
 - `gjules msg approve [id]` : Approve a plan.
 - `gjules msg wait [id]` : Block until Jules is ready for input or finished.
 
-### Feedback & System
-- `gjules feedback --type=bug "message"` : Save feedback to local JSONL.
-- `gjules feedback --open --type=bug` : Open GitHub issue pre-filled.
-- `gjules version` : Show version (v0.2.0).
+### System
+- `gjules version` : Show version.
 - `gjules update` : Self-update.
 
 ## Configuration

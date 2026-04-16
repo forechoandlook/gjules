@@ -192,10 +192,10 @@ func listActivities(sessionID string, opts msgListOptions) ([]Activity, time.Tim
 		if err != nil {
 			die(err)
 		}
-		defer resp.Body.Close()
 		checkResp(resp)
 
 		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		var r struct {
 			Activities    []Activity `json:"activities"`
 			NextPageToken string     `json:"nextPageToken"`
@@ -563,9 +563,9 @@ func msgWait(sessionAlias string) {
 		if err != nil {
 			die(err)
 		}
-		defer resp.Body.Close()
 		checkResp(resp)
 		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		var s struct {
 			State string `json:"state"`
 		}

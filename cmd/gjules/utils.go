@@ -22,9 +22,16 @@ func parseFields(args []string) (fields []string, remaining []string) {
 }
 
 func splitArgs(args []string) (flags []string, positional []string) {
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		if strings.HasPrefix(a, "-") {
-			flags = append(flags, a)
+			// Support --key value in addition to --key=value
+			if !strings.Contains(a, "=") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				flags = append(flags, a+"="+args[i+1])
+				i++
+			} else {
+				flags = append(flags, a)
+			}
 		} else {
 			positional = append(positional, a)
 		}
